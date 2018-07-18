@@ -1,3 +1,3 @@
-# hello-world
+# Play-JS-Quick-Start
 
-Hello world new project template.
+Play JS 的快速入门项目
