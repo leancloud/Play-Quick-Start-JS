@@ -1,1 +1,3 @@
-# Play-JS-Quick-Start
+# hello-world
+
+Hello world new project template.
