@@ -50,7 +50,7 @@ cc.Class({
     play.on(Event.ROOM_JOINED, () => {
       console.log('on joined room');
     });
-    play.on(Event.NEW_PLAYER_ROOM_JOINED, newPlayer => {
+    play.on(Event.PLAYER_ROOM_JOINED, newPlayer => {
       console.log(`new player: ${newPlayer.userId}`);
       if (play.player.isMaster()) {
         // 获取房间玩家列表

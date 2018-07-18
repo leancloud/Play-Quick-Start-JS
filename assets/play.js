@@ -1744,7 +1744,7 @@
 	  /** 离开大厅 */
 	  LOBBY_LEFT: 'lobbyLeft',
 	  /** 大厅房间列表变化 */
-	  LOBBY_ROOM_LIST_UPDATE: 'lobbyRoomListUpdate',
+	  LOBBY_ROOM_LIST_UPDATED: 'lobbyRoomListUpdate',
 	  /** 创建房间成功 */
 	  ROOM_CREATED: 'roomCreated',
 	  /** 创建房间失败 */
@@ -1754,7 +1754,7 @@
 	  /** 加入房间失败 */
 	  ROOM_JOIN_FAILED: 'roomJoinFailed',
 	  /** 有新玩家加入房间 */
-	  NEW_PLAYER_ROOM_JOINED: 'newPlayerJoinedRoom',
+	  PLAYER_ROOM_JOINED: 'newPlayerJoinedRoom',
 	  /** 有玩家离开房间 */
 	  PLAYER_ROOM_LEFT: 'playerLeftRoom',
 	  /** 玩家活跃属性变化 */
@@ -1847,7 +1847,7 @@
 	     * 大厅中房间属性「键」数组，这些属性将会大厅的房间属性中查看，并在匹配房间时用到。
 	     * @type {Array.<string>}
 	     */
-	    this.customRoomPropertiesKeysForLobby = null;
+	    this.customRoomPropertyKeysForLobby = null;
 	  }
 
 	  _toMsg() {
@@ -1859,8 +1859,8 @@
 	    if (this.maxPlayerCount > 0 && this.maxPlayerCount < MAX_PLAYER_COUNT)
 	      options.maxMembers = this.maxPlayerCount;
 	    if (this.customRoomProperties) options.attr = this.customRoomProperties;
-	    if (this.customRoomPropertiesKeysForLobby)
-	      options.lobbyAttrKeys = this.customRoomPropertiesKeysForLobby;
+	    if (this.customRoomPropertyKeysForLobby)
+	      options.lobbyAttrKeys = this.customRoomPropertyKeysForLobby;
 	    return options;
 	  }
 	}
@@ -2088,7 +2088,7 @@
 	    const lobbyRoomDTO = msg.list[i];
 	    play._lobbyRoomList[i] = new LobbyRoom(lobbyRoomDTO);
 	  }
-	  play.emit(Event.LOBBY_ROOM_LIST_UPDATE);
+	  play.emit(Event.LOBBY_ROOM_LIST_UPDATED);
 	}
 
 	function handleGameServer(play, msg) {
@@ -2384,7 +2384,7 @@
 	function handleNewPlayerJoinedRoom(play, msg) {
 	  const newPlayer = Player._newFromJSONObject(play, msg.member);
 	  play._room._addPlayer(newPlayer);
-	  play.emit(Event.NEW_PLAYER_ROOM_JOINED, newPlayer);
+	  play.emit(Event.PLAYER_ROOM_JOINED, newPlayer);
 	}
 
 	// 有玩家离开房间
