@@ -21,7 +21,7 @@ cc.Class({
 
   // use this for initialization
   onLoad() {
-    const roomName = 'cocos_creator_room';
+    const roomName = 'ccc_room';
 
     const randId = parseInt(Math.random() * 1000000, 10);
     this.idLabel.string = `ID: ${randId}`;
@@ -32,25 +32,25 @@ cc.Class({
     // 设置 APP Key
     opts.appKey = 'Y04sM6TzhMSBmCMkwfI3FpHc';
     // 设置节点区域
-    opts.region = Region.EAST_CN;
+    opts.region = Region.EastChina;
     play.init(opts);
     // 设置玩家 ID
     play.userId = randId.toString();
     // 注册事件
-    play.on(Event.JOINED_LOBBY, () => {
+    play.on(Event.LOBBY_JOINED, () => {
       console.log('on joined lobby');
       play.joinOrCreateRoom(roomName);
     });
-    play.on(Event.CREATED_ROOM, () => {
+    play.on(Event.ROOM_CREATED, () => {
       console.log('on created room');
     });
-    play.on(Event.CREATE_ROOM_FAILED, () => {
+    play.on(Event.ROOM_CREATE_FAILED, () => {
       console.log('on create room failed');
     });
-    play.on(Event.JOINED_ROOM, () => {
+    play.on(Event.ROOM_JOINED, () => {
       console.log('on joined room');
     });
-    play.on(Event.NEW_PLAYER_JOINED_ROOM, newPlayer => {
+    play.on(Event.NEW_PLAYER_ROOM_JOINED, newPlayer => {
       console.log(`new player: ${newPlayer.userId}`);
       if (play.player.isMaster()) {
         // 获取房间玩家列表

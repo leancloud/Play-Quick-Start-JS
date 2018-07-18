@@ -1692,11 +1692,11 @@
 	 */
 	const Region = {
 	  /** 华北节点 */
-	  NORTH_CN: 0,
+	  NorthChina: 0,
 	  /** 华东节点 */
-	  EAST_CN: 1,
+	  EastChina: 1,
 	  /** 美国节点 */
-	  US: 2,
+	  NorthAmerica: 2,
 	};
 
 	/**
@@ -1740,29 +1740,29 @@
 	  /** 断开连接 */
 	  DISCONNECTED: 'disconnected',
 	  /** 加入到大厅 */
-	  JOINED_LOBBY: 'joinedLobby',
+	  LOBBY_JOINED: 'lobbyJoined',
 	  /** 离开大厅 */
-	  LEFT_LOBBY: 'leftLobby',
+	  LOBBY_LEFT: 'lobbyLeft',
 	  /** 大厅房间列表变化 */
 	  LOBBY_ROOM_LIST_UPDATE: 'lobbyRoomListUpdate',
 	  /** 创建房间成功 */
-	  CREATED_ROOM: 'createdRoom',
+	  ROOM_CREATED: 'roomCreated',
 	  /** 创建房间失败 */
-	  CREATE_ROOM_FAILED: 'createRoomFailed',
+	  ROOM_CREATE_FAILED: 'roomCreateFailed',
 	  /** 加入房间成功 */
-	  JOINED_ROOM: 'joinedRoom',
+	  ROOM_JOINED: 'roomJoined',
 	  /** 加入房间失败 */
-	  JOIN_ROOM_FAILED: 'joinRoomFailed',
+	  ROOM_JOIN_FAILED: 'roomJoinFailed',
 	  /** 有新玩家加入房间 */
-	  NEW_PLAYER_JOINED_ROOM: 'newPlayerJoinedRoom',
+	  NEW_PLAYER_ROOM_JOINED: 'newPlayerJoinedRoom',
 	  /** 有玩家离开房间 */
-	  PLAYER_LEFT_ROOM: 'playerLeftRoom',
+	  PLAYER_ROOM_LEFT: 'playerLeftRoom',
 	  /** 玩家活跃属性变化 */
 	  PLAYER_ACTIVITY_CHANGED: 'playerActivityChanged',
 	  /** 主机变更 */
 	  MASTER_SWITCHED: 'masterSwitched',
 	  /** 离开房间 */
-	  LEFT_ROOM: 'leftRoom',
+	  ROOM_LEFT: 'roomLeft',
 	  /** 房间自定义属性变化 */
 	  ROOM_CUSTOM_PROPERTIES_CHANGED: 'roomCustomPropertiesChanged',
 	  /** 玩家自定义属性变化 */
@@ -2072,13 +2072,13 @@
 	// 加入大厅
 	function handleJoinedLobby(play) {
 	  play._inLobby = true;
-	  play.emit(Event.JOINED_LOBBY);
+	  play.emit(Event.LOBBY_JOINED);
 	}
 
 	// 离开大厅
 	function handleLeftLobby(play) {
 	  play._inLobby = false;
-	  play.emit(Event.LEFT_LOBBY);
+	  play.emit(Event.LOBBY_LEFT);
 	}
 
 	// 房间列表更新
@@ -2094,7 +2094,7 @@
 	function handleGameServer(play, msg) {
 	  if (play._inLobby) {
 	    play._inLobby = false;
-	    play.emit(Event.LEFT_LOBBY);
+	    play.emit(Event.LOBBY_LEFT);
 	  }
 	  play._gameServer = msg.secureAddr;
 	  if (msg.cid) {
@@ -2106,7 +2106,7 @@
 	// 创建房间
 	function handleCreateGameServer(play, msg) {
 	  if (msg.reasonCode) {
-	    play.emit(Event.CREATE_ROOM_FAILED, {
+	    play.emit(Event.ROOM_CREATE_FAILED, {
 	      code: msg.reasonCode,
 	      detail: msg.detail,
 	    });
@@ -2120,7 +2120,7 @@
 	/* eslint no-param-reassign: ["error", { "props": false }] */
 	function handleJoinGameServer(play, msg) {
 	  if (msg.reasonCode) {
-	    play.emit(Event.JOIN_ROOM_FAILED, {
+	    play.emit(Event.ROOM_JOIN_FAILED, {
 	      code: msg.reasonCode,
 	      detail: msg.detail,
 	    });
@@ -2356,27 +2356,27 @@
 	// 创建房间
 	function handleCreatedRoom(play, msg) {
 	  if (msg.reasonCode) {
-	    play.emit(Event.CREATE_ROOM_FAILED, {
+	    play.emit(Event.ROOM_CREATE_FAILED, {
 	      code: msg.reasonCode,
 	      detail: msg.detail,
 	    });
 	  } else {
 	    play._room = Room._newFromJSONObject(play, msg);
-	    play.emit(Event.CREATED_ROOM);
-	    play.emit(Event.JOINED_ROOM);
+	    play.emit(Event.ROOM_CREATED);
+	    play.emit(Event.ROOM_JOINED);
 	  }
 	}
 
 	// 加入房间
 	function handleJoinedRoom(play, msg) {
 	  if (msg.reasonCode) {
-	    play.emit(Event.JOIN_ROOM_FAILED, {
+	    play.emit(Event.ROOM_JOIN_FAILED, {
 	      code: msg.reasonCode,
 	      detail: msg.detail,
 	    });
 	  } else {
 	    play._room = Room._newFromJSONObject(play, msg);
-	    play.emit(Event.JOINED_ROOM);
+	    play.emit(Event.ROOM_JOINED);
 	  }
 	}
 
@@ -2384,7 +2384,7 @@
 	function handleNewPlayerJoinedRoom(play, msg) {
 	  const newPlayer = Player._newFromJSONObject(play, msg.member);
 	  play._room._addPlayer(newPlayer);
-	  play.emit(Event.NEW_PLAYER_JOINED_ROOM, newPlayer);
+	  play.emit(Event.NEW_PLAYER_ROOM_JOINED, newPlayer);
 	}
 
 	// 有玩家离开房间
@@ -2392,7 +2392,7 @@
 	  const actorId = msg.initByActor;
 	  const leftPlayer = play._room.getPlayer(actorId);
 	  play._room._removePlayer(actorId);
-	  play.emit(Event.PLAYER_LEFT_ROOM, leftPlayer);
+	  play.emit(Event.PLAYER_ROOM_LEFT, leftPlayer);
 	}
 
 	// 主机切换
@@ -2450,7 +2450,7 @@
 	  // 清理工作
 	  play._room = null;
 	  play._player = null;
-	  play.emit(Event.LEFT_ROOM);
+	  play.emit(Event.ROOM_LEFT);
 	  play._connectToMaster();
 	}
 
@@ -2649,11 +2649,11 @@
 	    }
 	    this._gameVersion = gameVersion;
 	    let masterURL = EastCNServerURL;
-	    if (this._region === Region.NORTH_CN) {
+	    if (this._region === Region.NorthChina) {
 	      masterURL = NorthCNServerURL;
-	    } else if (this._region === Region.EAST_CN) {
+	    } else if (this._region === Region.EastChina) {
 	      masterURL = EastCNServerURL;
-	    } else if (this._region === Region.US) {
+	    } else if (this._region === Region.NorthAmerica) {
 	      masterURL = USServerURL;
 	    }
 	    const params = `appId=${this._appId}&secure=true&ua=${this._getUA()}`;
