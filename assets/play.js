@@ -264,7 +264,7 @@
 	  }
 
 	  // Force an array if not already something iterable
-	  if (typeof obj !== 'object') {
+	  if (typeof obj !== 'object' && !isArray(obj)) {
 	    /*eslint no-param-reassign:0*/
 	    obj = [obj];
 	  }
@@ -465,7 +465,9 @@
 
 	      if (utils.isArray(val)) {
 	        key = key + '[]';
-	      } else {
+	      }
+
+	      if (!utils.isArray(val)) {
 	        val = [val];
 	      }
 
@@ -707,7 +709,9 @@
 	    // For IE 8/9 CORS support
 	    // Only supports POST and GET calls and doesn't returns the response headers.
 	    // DON'T do this for testing b/c XMLHttpRequest is mocked, not XDomainRequest.
-	    if (typeof window !== 'undefined' &&
+	    if (!window.XMLHttpRequest &&
+	        process.env.NODE_ENV !== 'test' &&
+	        typeof window !== 'undefined' &&
 	        window.XDomainRequest && !('withCredentials' in request) &&
 	        !isURLSameOrigin(config.url)) {
 	      request = new window.XDomainRequest();
@@ -921,10 +925,6 @@
 	    return data;
 	  }],
 
-	  /**
-	   * A timeout in milliseconds to abort a request. If set to 0 (default) a
-	   * timeout is not created.
-	   */
 	  timeout: 0,
 
 	  xsrfCookieName: 'XSRF-TOKEN',
@@ -1154,7 +1154,7 @@
 	    }, arguments[1]);
 	  }
 
-	  config = utils.merge(defaults_1, {method: 'get'}, this.defaults, config);
+	  config = utils.merge(defaults_1, this.defaults, { method: 'get' }, config);
 	  config.method = config.method.toLowerCase();
 
 	  // Hook up interceptors middleware
@@ -1686,6 +1686,600 @@
 	});
 
 	/**
+	 * Helpers.
+	 */
+
+	var s = 1000;
+	var m = s * 60;
+	var h = m * 60;
+	var d = h * 24;
+	var y = d * 365.25;
+
+	/**
+	 * Parse or format the given `val`.
+	 *
+	 * Options:
+	 *
+	 *  - `long` verbose formatting [false]
+	 *
+	 * @param {String|Number} val
+	 * @param {Object} [options]
+	 * @throws {Error} throw an error if val is not a non-empty string or a number
+	 * @return {String|Number}
+	 * @api public
+	 */
+
+	var ms = function(val, options) {
+	  options = options || {};
+	  var type = typeof val;
+	  if (type === 'string' && val.length > 0) {
+	    return parse(val);
+	  } else if (type === 'number' && isNaN(val) === false) {
+	    return options.long ? fmtLong(val) : fmtShort(val);
+	  }
+	  throw new Error(
+	    'val is not a non-empty string or a valid number. val=' +
+	      JSON.stringify(val)
+	  );
+	};
+
+	/**
+	 * Parse the given `str` and return milliseconds.
+	 *
+	 * @param {String} str
+	 * @return {Number}
+	 * @api private
+	 */
+
+	function parse(str) {
+	  str = String(str);
+	  if (str.length > 100) {
+	    return;
+	  }
+	  var match = /^((?:\d+)?\.?\d+) *(milliseconds?|msecs?|ms|seconds?|secs?|s|minutes?|mins?|m|hours?|hrs?|h|days?|d|years?|yrs?|y)?$/i.exec(
+	    str
+	  );
+	  if (!match) {
+	    return;
+	  }
+	  var n = parseFloat(match[1]);
+	  var type = (match[2] || 'ms').toLowerCase();
+	  switch (type) {
+	    case 'years':
+	    case 'year':
+	    case 'yrs':
+	    case 'yr':
+	    case 'y':
+	      return n * y;
+	    case 'days':
+	    case 'day':
+	    case 'd':
+	      return n * d;
+	    case 'hours':
+	    case 'hour':
+	    case 'hrs':
+	    case 'hr':
+	    case 'h':
+	      return n * h;
+	    case 'minutes':
+	    case 'minute':
+	    case 'mins':
+	    case 'min':
+	    case 'm':
+	      return n * m;
+	    case 'seconds':
+	    case 'second':
+	    case 'secs':
+	    case 'sec':
+	    case 's':
+	      return n * s;
+	    case 'milliseconds':
+	    case 'millisecond':
+	    case 'msecs':
+	    case 'msec':
+	    case 'ms':
+	      return n;
+	    default:
+	      return undefined;
+	  }
+	}
+
+	/**
+	 * Short format for `ms`.
+	 *
+	 * @param {Number} ms
+	 * @return {String}
+	 * @api private
+	 */
+
+	function fmtShort(ms) {
+	  if (ms >= d) {
+	    return Math.round(ms / d) + 'd';
+	  }
+	  if (ms >= h) {
+	    return Math.round(ms / h) + 'h';
+	  }
+	  if (ms >= m) {
+	    return Math.round(ms / m) + 'm';
+	  }
+	  if (ms >= s) {
+	    return Math.round(ms / s) + 's';
+	  }
+	  return ms + 'ms';
+	}
+
+	/**
+	 * Long format for `ms`.
+	 *
+	 * @param {Number} ms
+	 * @return {String}
+	 * @api private
+	 */
+
+	function fmtLong(ms) {
+	  return plural(ms, d, 'day') ||
+	    plural(ms, h, 'hour') ||
+	    plural(ms, m, 'minute') ||
+	    plural(ms, s, 'second') ||
+	    ms + ' ms';
+	}
+
+	/**
+	 * Pluralization helper.
+	 */
+
+	function plural(ms, n, name) {
+	  if (ms < n) {
+	    return;
+	  }
+	  if (ms < n * 1.5) {
+	    return Math.floor(ms / n) + ' ' + name;
+	  }
+	  return Math.ceil(ms / n) + ' ' + name + 's';
+	}
+
+	var debug = createCommonjsModule(function (module, exports) {
+	/**
+	 * This is the common logic for both the Node.js and web browser
+	 * implementations of `debug()`.
+	 *
+	 * Expose `debug()` as the module.
+	 */
+
+	exports = module.exports = createDebug.debug = createDebug['default'] = createDebug;
+	exports.coerce = coerce;
+	exports.disable = disable;
+	exports.enable = enable;
+	exports.enabled = enabled;
+	exports.humanize = ms;
+
+	/**
+	 * Active `debug` instances.
+	 */
+	exports.instances = [];
+
+	/**
+	 * The currently active debug mode names, and names to skip.
+	 */
+
+	exports.names = [];
+	exports.skips = [];
+
+	/**
+	 * Map of special "%n" handling functions, for the debug "format" argument.
+	 *
+	 * Valid key names are a single, lower or upper-case letter, i.e. "n" and "N".
+	 */
+
+	exports.formatters = {};
+
+	/**
+	 * Select a color.
+	 * @param {String} namespace
+	 * @return {Number}
+	 * @api private
+	 */
+
+	function selectColor(namespace) {
+	  var hash = 0, i;
+
+	  for (i in namespace) {
+	    hash  = ((hash << 5) - hash) + namespace.charCodeAt(i);
+	    hash |= 0; // Convert to 32bit integer
+	  }
+
+	  return exports.colors[Math.abs(hash) % exports.colors.length];
+	}
+
+	/**
+	 * Create a debugger with the given `namespace`.
+	 *
+	 * @param {String} namespace
+	 * @return {Function}
+	 * @api public
+	 */
+
+	function createDebug(namespace) {
+
+	  var prevTime;
+
+	  function debug() {
+	    // disabled?
+	    if (!debug.enabled) return;
+
+	    var self = debug;
+
+	    // set `diff` timestamp
+	    var curr = +new Date();
+	    var ms$$1 = curr - (prevTime || curr);
+	    self.diff = ms$$1;
+	    self.prev = prevTime;
+	    self.curr = curr;
+	    prevTime = curr;
+
+	    // turn the `arguments` into a proper Array
+	    var args = new Array(arguments.length);
+	    for (var i = 0; i < args.length; i++) {
+	      args[i] = arguments[i];
+	    }
+
+	    args[0] = exports.coerce(args[0]);
+
+	    if ('string' !== typeof args[0]) {
+	      // anything else let's inspect with %O
+	      args.unshift('%O');
+	    }
+
+	    // apply any `formatters` transformations
+	    var index = 0;
+	    args[0] = args[0].replace(/%([a-zA-Z%])/g, function(match, format) {
+	      // if we encounter an escaped % then don't increase the array index
+	      if (match === '%%') return match;
+	      index++;
+	      var formatter = exports.formatters[format];
+	      if ('function' === typeof formatter) {
+	        var val = args[index];
+	        match = formatter.call(self, val);
+
+	        // now we need to remove `args[index]` since it's inlined in the `format`
+	        args.splice(index, 1);
+	        index--;
+	      }
+	      return match;
+	    });
+
+	    // apply env-specific formatting (colors, etc.)
+	    exports.formatArgs.call(self, args);
+
+	    var logFn = debug.log || exports.log || console.log.bind(console);
+	    logFn.apply(self, args);
+	  }
+
+	  debug.namespace = namespace;
+	  debug.enabled = exports.enabled(namespace);
+	  debug.useColors = exports.useColors();
+	  debug.color = selectColor(namespace);
+	  debug.destroy = destroy;
+
+	  // env-specific initialization logic for debug instances
+	  if ('function' === typeof exports.init) {
+	    exports.init(debug);
+	  }
+
+	  exports.instances.push(debug);
+
+	  return debug;
+	}
+
+	function destroy () {
+	  var index = exports.instances.indexOf(this);
+	  if (index !== -1) {
+	    exports.instances.splice(index, 1);
+	    return true;
+	  } else {
+	    return false;
+	  }
+	}
+
+	/**
+	 * Enables a debug mode by namespaces. This can include modes
+	 * separated by a colon and wildcards.
+	 *
+	 * @param {String} namespaces
+	 * @api public
+	 */
+
+	function enable(namespaces) {
+	  exports.save(namespaces);
+
+	  exports.names = [];
+	  exports.skips = [];
+
+	  var i;
+	  var split = (typeof namespaces === 'string' ? namespaces : '').split(/[\s,]+/);
+	  var len = split.length;
+
+	  for (i = 0; i < len; i++) {
+	    if (!split[i]) continue; // ignore empty strings
+	    namespaces = split[i].replace(/\*/g, '.*?');
+	    if (namespaces[0] === '-') {
+	      exports.skips.push(new RegExp('^' + namespaces.substr(1) + '$'));
+	    } else {
+	      exports.names.push(new RegExp('^' + namespaces + '$'));
+	    }
+	  }
+
+	  for (i = 0; i < exports.instances.length; i++) {
+	    var instance = exports.instances[i];
+	    instance.enabled = exports.enabled(instance.namespace);
+	  }
+	}
+
+	/**
+	 * Disable debug output.
+	 *
+	 * @api public
+	 */
+
+	function disable() {
+	  exports.enable('');
+	}
+
+	/**
+	 * Returns true if the given mode name is enabled, false otherwise.
+	 *
+	 * @param {String} name
+	 * @return {Boolean}
+	 * @api public
+	 */
+
+	function enabled(name) {
+	  if (name[name.length - 1] === '*') {
+	    return true;
+	  }
+	  var i, len;
+	  for (i = 0, len = exports.skips.length; i < len; i++) {
+	    if (exports.skips[i].test(name)) {
+	      return false;
+	    }
+	  }
+	  for (i = 0, len = exports.names.length; i < len; i++) {
+	    if (exports.names[i].test(name)) {
+	      return true;
+	    }
+	  }
+	  return false;
+	}
+
+	/**
+	 * Coerce `val`.
+	 *
+	 * @param {Mixed} val
+	 * @return {Mixed}
+	 * @api private
+	 */
+
+	function coerce(val) {
+	  if (val instanceof Error) return val.stack || val.message;
+	  return val;
+	}
+	});
+	var debug_1 = debug.coerce;
+	var debug_2 = debug.disable;
+	var debug_3 = debug.enable;
+	var debug_4 = debug.enabled;
+	var debug_5 = debug.humanize;
+	var debug_6 = debug.instances;
+	var debug_7 = debug.names;
+	var debug_8 = debug.skips;
+	var debug_9 = debug.formatters;
+
+	var browser$1 = createCommonjsModule(function (module, exports) {
+	/**
+	 * This is the web browser implementation of `debug()`.
+	 *
+	 * Expose `debug()` as the module.
+	 */
+
+	exports = module.exports = debug;
+	exports.log = log;
+	exports.formatArgs = formatArgs;
+	exports.save = save;
+	exports.load = load;
+	exports.useColors = useColors;
+	exports.storage = 'undefined' != typeof chrome
+	               && 'undefined' != typeof chrome.storage
+	                  ? chrome.storage.local
+	                  : localstorage();
+
+	/**
+	 * Colors.
+	 */
+
+	exports.colors = [
+	  '#0000CC', '#0000FF', '#0033CC', '#0033FF', '#0066CC', '#0066FF', '#0099CC',
+	  '#0099FF', '#00CC00', '#00CC33', '#00CC66', '#00CC99', '#00CCCC', '#00CCFF',
+	  '#3300CC', '#3300FF', '#3333CC', '#3333FF', '#3366CC', '#3366FF', '#3399CC',
+	  '#3399FF', '#33CC00', '#33CC33', '#33CC66', '#33CC99', '#33CCCC', '#33CCFF',
+	  '#6600CC', '#6600FF', '#6633CC', '#6633FF', '#66CC00', '#66CC33', '#9900CC',
+	  '#9900FF', '#9933CC', '#9933FF', '#99CC00', '#99CC33', '#CC0000', '#CC0033',
+	  '#CC0066', '#CC0099', '#CC00CC', '#CC00FF', '#CC3300', '#CC3333', '#CC3366',
+	  '#CC3399', '#CC33CC', '#CC33FF', '#CC6600', '#CC6633', '#CC9900', '#CC9933',
+	  '#CCCC00', '#CCCC33', '#FF0000', '#FF0033', '#FF0066', '#FF0099', '#FF00CC',
+	  '#FF00FF', '#FF3300', '#FF3333', '#FF3366', '#FF3399', '#FF33CC', '#FF33FF',
+	  '#FF6600', '#FF6633', '#FF9900', '#FF9933', '#FFCC00', '#FFCC33'
+	];
+
+	/**
+	 * Currently only WebKit-based Web Inspectors, Firefox >= v31,
+	 * and the Firebug extension (any Firefox version) are known
+	 * to support "%c" CSS customizations.
+	 *
+	 * TODO: add a `localStorage` variable to explicitly enable/disable colors
+	 */
+
+	function useColors() {
+	  // NB: In an Electron preload script, document will be defined but not fully
+	  // initialized. Since we know we're in Chrome, we'll just detect this case
+	  // explicitly
+	  if (typeof window !== 'undefined' && window.process && window.process.type === 'renderer') {
+	    return true;
+	  }
+
+	  // Internet Explorer and Edge do not support colors.
+	  if (typeof navigator !== 'undefined' && navigator.userAgent && navigator.userAgent.toLowerCase().match(/(edge|trident)\/(\d+)/)) {
+	    return false;
+	  }
+
+	  // is webkit? http://stackoverflow.com/a/16459606/376773
+	  // document is undefined in react-native: https://github.com/facebook/react-native/pull/1632
+	  return (typeof document !== 'undefined' && document.documentElement && document.documentElement.style && document.documentElement.style.WebkitAppearance) ||
+	    // is firebug? http://stackoverflow.com/a/398120/376773
+	    (typeof window !== 'undefined' && window.console && (window.console.firebug || (window.console.exception && window.console.table))) ||
+	    // is firefox >= v31?
+	    // https://developer.mozilla.org/en-US/docs/Tools/Web_Console#Styling_messages
+	    (typeof navigator !== 'undefined' && navigator.userAgent && navigator.userAgent.toLowerCase().match(/firefox\/(\d+)/) && parseInt(RegExp.$1, 10) >= 31) ||
+	    // double check webkit in userAgent just in case we are in a worker
+	    (typeof navigator !== 'undefined' && navigator.userAgent && navigator.userAgent.toLowerCase().match(/applewebkit\/(\d+)/));
+	}
+
+	/**
+	 * Map %j to `JSON.stringify()`, since no Web Inspectors do that by default.
+	 */
+
+	exports.formatters.j = function(v) {
+	  try {
+	    return JSON.stringify(v);
+	  } catch (err) {
+	    return '[UnexpectedJSONParseError]: ' + err.message;
+	  }
+	};
+
+
+	/**
+	 * Colorize log arguments if enabled.
+	 *
+	 * @api public
+	 */
+
+	function formatArgs(args) {
+	  var useColors = this.useColors;
+
+	  args[0] = (useColors ? '%c' : '')
+	    + this.namespace
+	    + (useColors ? ' %c' : ' ')
+	    + args[0]
+	    + (useColors ? '%c ' : ' ')
+	    + '+' + exports.humanize(this.diff);
+
+	  if (!useColors) return;
+
+	  var c = 'color: ' + this.color;
+	  args.splice(1, 0, c, 'color: inherit');
+
+	  // the final "%c" is somewhat tricky, because there could be other
+	  // arguments passed either before or after the %c, so we need to
+	  // figure out the correct index to insert the CSS into
+	  var index = 0;
+	  var lastC = 0;
+	  args[0].replace(/%[a-zA-Z%]/g, function(match) {
+	    if ('%%' === match) return;
+	    index++;
+	    if ('%c' === match) {
+	      // we only are interested in the *last* %c
+	      // (the user may have provided their own)
+	      lastC = index;
+	    }
+	  });
+
+	  args.splice(lastC, 0, c);
+	}
+
+	/**
+	 * Invokes `console.log()` when available.
+	 * No-op when `console.log` is not a "function".
+	 *
+	 * @api public
+	 */
+
+	function log() {
+	  // this hackery is required for IE8/9, where
+	  // the `console.log` function doesn't have 'apply'
+	  return 'object' === typeof console
+	    && console.log
+	    && Function.prototype.apply.call(console.log, console, arguments);
+	}
+
+	/**
+	 * Save `namespaces`.
+	 *
+	 * @param {String} namespaces
+	 * @api private
+	 */
+
+	function save(namespaces) {
+	  try {
+	    if (null == namespaces) {
+	      exports.storage.removeItem('debug');
+	    } else {
+	      exports.storage.debug = namespaces;
+	    }
+	  } catch(e) {}
+	}
+
+	/**
+	 * Load `namespaces`.
+	 *
+	 * @return {String} returns the previously persisted debug modes
+	 * @api private
+	 */
+
+	function load() {
+	  var r;
+	  try {
+	    r = exports.storage.debug;
+	  } catch(e) {}
+
+	  // If debug isn't set in LS, and we're in Electron, try to load $DEBUG
+	  if (!r && typeof process !== 'undefined' && 'env' in process) {
+	    r = process.env.DEBUG;
+	  }
+
+	  return r;
+	}
+
+	/**
+	 * Enable namespaces listed in `localStorage.debug` initially.
+	 */
+
+	exports.enable(load());
+
+	/**
+	 * Localstorage attempts to return the localstorage.
+	 *
+	 * This is necessary because safari throws
+	 * when a user disables cookies/localstorage
+	 * and you attempt to access it.
+	 *
+	 * @return {LocalStorage}
+	 * @api private
+	 */
+
+	function localstorage() {
+	  try {
+	    return window.localStorage;
+	  } catch (e) {}
+	}
+	});
+	var browser_1 = browser$1.log;
+	var browser_2 = browser$1.formatArgs;
+	var browser_3 = browser$1.save;
+	var browser_4 = browser$1.load;
+	var browser_5 = browser$1.useColors;
+	var browser_6 = browser$1.storage;
+	var browser_7 = browser$1.colors;
+
+	/**
 	 * 节点地区
 	 * @readonly
 	 * @enum {number}
@@ -1698,34 +2292,6 @@
 	  /** 美国节点 */
 	  NorthAmerica: 2,
 	};
-
-	/**
-	 * Play 选项类，用于初始化 Play
-	 */
-	class PlayOptions {
-	  constructor() {
-	    /**
-	     * APP ID
-	     * @type {string}
-	     */
-	    this.appId = null;
-	    /**
-	     * APP KEY
-	     * @type {string}
-	     */
-	    this.appKey = null;
-	    /**
-	     * 节点地区
-	     * @type {Region}
-	     */
-	    this.region = null;
-	    /**
-	     * 是否在连接成功后自动加入大厅，默认值为 true
-	     * @type {boolean}
-	     */
-	    this.autoJoinLobby = true;
-	  }
-	}
 
 	/**
 	 * 事件
@@ -1772,98 +2338,6 @@
 	  /** 错误事件 */
 	  ERROR: 'error',
 	};
-
-	/**
-	 * 接收组枚举
-	 * @readonly
-	 * @enum {number}
-	 */
-	const ReceiverGroup = {
-	  /** 其他人（除了自己之外的所有人） */
-	  Others: 0,
-	  /** 所有人（包括自己） */
-	  All: 1,
-	  /** 主机客户端 */
-	  MasterClient: 2,
-	};
-
-	/**
-	 * 发送事件选项类
-	 */
-	class SendEventOptions {
-	  constructor() {
-	    this.cachingOption = 0;
-	    /**
-	     * 接收组
-	     * @type {ReceiverGroup}
-	     */
-	    this.receiverGroup = ReceiverGroup.All;
-	    /**
-	     * 接收者 ID 数组。如果设置，将会覆盖 receiverGroup
-	     * @type {Array.<number>}
-	     */
-	    this.targetActorIds = null;
-	  }
-	}
-
-	const MAX_PLAYER_COUNT = 10;
-
-	/**
-	 * 创建房间选项类
-	 */
-	class RoomOptions {
-	  constructor() {
-	    /**
-	     * 是否开启
-	     * @type {boolean}
-	     */
-	    this.opened = true;
-	    /**
-	     * 是否可见
-	     * @type {boolean}
-	     */
-	    this.visible = true;
-	    /**
-	     * 房间没人后延迟销毁时间（单位：秒），最大值 1800 秒，即 30 分钟
-	     * @type {number}
-	     */
-	    this.emptyRoomTtl = 0;
-	    /**
-	     * 玩家离线后踢出房间时间（单位：秒），最大值 300 秒，即 5 分钟
-	     * @type {number}
-	     */
-	    this.playerTtl = 0;
-	    /**
-	     * 房间允许的最大玩家数量，最大限制为 10
-	     * @type {number}
-	     */
-	    this.maxPlayerCount = MAX_PLAYER_COUNT;
-	    /**
-	     * 房间自定义属性（包含匹配属性）
-	     * @type {Object}
-	     */
-	    this.customRoomProperties = null;
-	    /**
-	     * 大厅中房间属性「键」数组，这些属性将会大厅的房间属性中查看，并在匹配房间时用到。
-	     * @type {Array.<string>}
-	     */
-	    this.customRoomPropertyKeysForLobby = null;
-	  }
-
-	  _toMsg() {
-	    const options = {};
-	    if (!this.opened) options.open = this.opened;
-	    if (!this.visible) options.visible = this.visible;
-	    if (this.emptyRoomTtl > 0) options.emptyRoomTtl = this.emptyRoomTtl;
-	    if (this.playerTtl > 0) options.playerTtl = this.playerTtl;
-	    if (this.maxPlayerCount > 0 && this.maxPlayerCount < MAX_PLAYER_COUNT)
-	      options.maxMembers = this.maxPlayerCount;
-	    if (this.customRoomProperties) options.attr = this.customRoomProperties;
-	    if (this.customRoomPropertyKeysForLobby)
-	      options.lobbyAttrKeys = this.customRoomPropertyKeysForLobby;
-	    return options;
-	  }
-	}
 
 	/**
 	 * 玩家类
@@ -1931,8 +2405,8 @@
 	   * 判断是不是活跃状态
 	   * @return {Boolean}
 	   */
-	  isInActive() {
-	    return this.inActive;
+	  isActive() {
+	    return this.active;
 	  }
 
 	  /**
@@ -1959,7 +2433,7 @@
 
 	  // 设置活跃状态
 	  _setActive(active) {
-	    this.inActive = !active;
+	    this.active = active;
 	  }
 
 	  _mergeProperties(changedProperties) {
@@ -2055,7 +2529,7 @@
 	  });
 	}
 
-	const debug = require('debug')('Play:MasterHandler');
+	const debug$1 = browser$1('Play:MasterHandler');
 
 	// 连接建立
 	function handleMasterServerSessionOpen(play, msg) {
@@ -2070,9 +2544,14 @@
 	}
 
 	// 加入大厅
-	function handleJoinedLobby(play) {
-	  play._inLobby = true;
-	  play.emit(Event.LOBBY_JOINED);
+	function handleJoinedLobby(play, msg) {
+	  if (msg.reasonCode) {
+	    const { reasonCode, detail } = msg;
+	    console.error(`join lobby failed: ${reasonCode} - ${detail}`);
+	  } else {
+	    play._inLobby = true;
+	    play.emit(Event.LOBBY_JOINED);
+	  }
 	}
 
 	// 离开大厅
@@ -2133,7 +2612,7 @@
 	// 大厅消息处理
 	function handleMasterMsg(play, message) {
 	  const msg = JSON.parse(message.data);
-	  debug(`${play.userId} Lobby msg: ${msg.op} <- ${message.data}`);
+	  debug$1(`${play.userId} Lobby msg: ${msg.op} <- ${message.data}`);
 	  switch (msg.cmd) {
 	    case 'session':
 	      switch (msg.op) {
@@ -2148,7 +2627,7 @@
 	    case 'lobby':
 	      switch (msg.op) {
 	        case 'added':
-	          handleJoinedLobby(play);
+	          handleJoinedLobby(play, msg);
 	          break;
 	        case 'room-list':
 	          handleRoomList(play, msg);
@@ -2344,7 +2823,7 @@
 	  }
 	}
 
-	const debug$1 = require('debug')('Play:GameHandler');
+	const debug$2 = browser$1('Play:GameHandler');
 
 	// 连接建立后创建 / 加入房间
 	function handleGameServerSessionOpen(play) {
@@ -2395,6 +2874,13 @@
 	  play.emit(Event.PLAYER_ROOM_LEFT, leftPlayer);
 	}
 
+	// 主机切换应答
+	function handleMasterUpdated(msg) {
+	  if (msg.reasonCode) {
+	    console.error(`set master error: ${msg.reasonCode}, ${msg.detail}`);
+	  }
+	}
+
 	// 主机切换
 	function handleMasterChanged(play, msg) {
 	  play._room._masterActorId = msg.masterActorId;
@@ -2410,6 +2896,15 @@
 	// 房间是否可见
 	function handleRoomVisibleChanged(play, msg) {
 	  play._room._visible = msg.toggle;
+	}
+
+	// 房间属性变更应答
+	function handleRoomCustomPropertiesChangedResponse(msg) {
+	  if (msg.reasonCode) {
+	    console.error(
+	      `set room properties error: ${msg.reasonCode}, ${msg.detail}`
+	    );
+	  }
 	}
 
 	// 房间属性变更
@@ -2465,7 +2960,7 @@
 
 	function handleGameMsg(play, message) {
 	  const msg = JSON.parse(message.data);
-	  debug$1(`${play.userId} Game msg: ${msg.op} <- ${message.data}`);
+	  debug$2(`${play.userId} Game msg: ${msg.op} <- ${message.data}`);
 	  switch (msg.cmd) {
 	    case 'session':
 	      switch (msg.op) {
@@ -2492,6 +2987,7 @@
 	          handlePlayerLeftRoom(play, msg);
 	          break;
 	        case 'master-client-updated':
+	          handleMasterUpdated(msg);
 	          break;
 	        case 'master-client-changed':
 	          handleMasterChanged(play, msg);
@@ -2503,6 +2999,7 @@
 	          handleRoomVisibleChanged(play, msg);
 	          break;
 	        case 'updated':
+	          handleRoomCustomPropertiesChangedResponse(msg);
 	          break;
 	        case 'updated-notify':
 	          handleRoomCustomPropertiesChanged(play, msg);
@@ -2550,14 +3047,36 @@
 	  }
 	}
 
-	var version = "0.2.1";
+	var version = "0.10.0";
 
 	// SDK 版本号
 	const NorthCNServerURL = 'https://game-router-cn-n1.leancloud.cn/';
 	const EastCNServerURL = 'https://game-router-cn-e1.leancloud.cn/';
 	const USServerURL = 'https://game-router-us-w1.leancloud.cn/';
 
-	const debug$2 = require('debug')('Play:Play');
+	const debug$3 = browser$1('Play:Play');
+
+	const MAX_PLAYER_COUNT = 10;
+
+	function convertRoomOptions(roomOptions) {
+	  const options = {};
+	  if (!roomOptions.opened) options.open = roomOptions.opened;
+	  if (!roomOptions.visible) options.visible = roomOptions.visible;
+	  if (roomOptions.emptyRoomTtl > 0)
+	    options.emptyRoomTtl = roomOptions.emptyRoomTtl;
+	  if (roomOptions.playerTtl > 0) options.playerTtl = roomOptions.playerTtl;
+	  if (
+	    roomOptions.maxPlayerCount > 0 &&
+	    roomOptions.maxPlayerCount < MAX_PLAYER_COUNT
+	  )
+	    options.maxMembers = roomOptions.maxPlayerCount;
+	  if (roomOptions.customRoomProperties)
+	    options.attr = roomOptions.customRoomProperties;
+	  if (roomOptions.customRoomPropertyKeysForLobby)
+	    options.lobbyAttrKeys = roomOptions.customRoomPropertyKeysForLobby;
+	  if (roomOptions.flag) options.flag = roomOptions.flag;
+	  return options;
+	}
 
 	/**
 	 * Play 客户端类
@@ -2576,12 +3095,12 @@
 
 	  /**
 	   * 初始化客户端
-	   * @param {PlayOptions} opts
+	   * @param {Object} opts
+	   * @param {string} opts.appId APP ID
+	   * @param {string} opts.appKey APP KEY
+	   * @param {number} opts.region 节点地区
 	   */
 	  init(opts) {
-	    if (!(opts instanceof PlayOptions)) {
-	      throw new TypeError(`${opts} is not a PlayOptions`);
-	    }
 	    if (!(typeof opts.appId === 'string')) {
 	      throw new TypeError(`${opts.appId} is not a string`);
 	    }
@@ -2591,13 +3110,14 @@
 	    if (!(typeof opts.region === 'number')) {
 	      throw new TypeError(`${opts.region} is not a number`);
 	    }
-	    if (!(typeof opts.autoJoinLobby === 'boolean')) {
-	      throw new TypeError(`${opts.autoJoinLobby} is not a boolean`);
-	    }
 	    this._appId = opts.appId;
 	    this._appKey = opts.appKey;
 	    this._region = opts.region;
-	    this._autoJoinLobby = opts.autoJoinLobby;
+	    if (opts.autoJoinLobby === undefined) {
+	      this._autoJoinLobby = true;
+	    } else {
+	      this._autoJoinLobby = opts.autoJoinLobby;
+	    }
 	    this._masterServer = null;
 	    this._gameServer = null;
 	    this._msgId = 0;
@@ -2632,7 +3152,7 @@
 	    const now = new Date().getTime();
 	    if (now < this._nextConnectTimestamp) {
 	      const waitTime = this._nextConnectTimestamp - now;
-	      debug$2(`wait time: ${waitTime}`);
+	      debug$3(`wait time: ${waitTime}`);
 	      this._connectTimer = setTimeout(() => {
 	        this._connect(gameVersion);
 	        clearTimeout(this._connectTimer);
@@ -2661,7 +3181,7 @@
 	    axios$1
 	      .get(url)
 	      .then(response => {
-	        debug$2(response.data);
+	        debug$3(response.data);
 	        // 重置下次允许的连接时间
 	        this._connectFailedCount = 0;
 	        this._nextConnectTimestamp = 0;
@@ -2693,7 +3213,6 @@
 	  reconnect() {
 	    const now = Date.now();
 	    if (now > this._serverValidTimeStamp) {
-	      console.error('re connect');
 	      // 超出 ttl 后将重新请求 router 连接
 	      this.connect(this._gameVersion);
 	    } else {
@@ -2724,7 +3243,7 @@
 	      this._websocket.close();
 	      this._websocket = null;
 	    }
-	    debug$2(`${this.userId} disconnect.`);
+	    debug$3(`${this.userId} disconnect.`);
 	  }
 
 	  /**
@@ -2755,7 +3274,7 @@
 	   * 创建房间
 	   * @param {Object} opts （可选）创建房间选项
 	   * @param {string} opts.roomName 房间名称，在整个游戏中唯一，默认值为 null，则由服务端分配一个唯一 Id
-	   * @param {RoomOptions} opts.roomOptions （可选）创建房间选项，默认值为 null
+	   * @param {Object} opts.roomOptions （可选）创建房间选项，默认值为 null
 	   * @param {Array.<string>} opts.expectedUserIds （可选）邀请好友 ID 数组，默认值为 null
 	   */
 	  createRoom({
@@ -2766,8 +3285,8 @@
 	    if (roomName !== null && !(typeof roomName === 'string')) {
 	      throw new TypeError(`${roomName} is not a string`);
 	    }
-	    if (roomOptions !== null && !(roomOptions instanceof RoomOptions)) {
-	      throw new TypeError(`${roomOptions} is not a RoomOptions`);
+	    if (roomOptions !== null && !(roomOptions instanceof Object)) {
+	      throw new TypeError(`${roomOptions} is not a Object`);
 	    }
 	    if (expectedUserIds !== null && !Array.isArray(expectedUserIds)) {
 	      throw new TypeError(`${expectedUserIds} is not an Array with string`);
@@ -2783,7 +3302,7 @@
 	    }
 	    // 拷贝房间属性（包括 系统属性和玩家定义属性）
 	    if (roomOptions) {
-	      const opts = roomOptions._toMsg();
+	      const opts = convertRoomOptions(roomOptions);
 	      this._cachedRoomMsg = Object.assign(this._cachedRoomMsg, opts);
 	    }
 	    if (expectedUserIds) {
@@ -2840,7 +3359,7 @@
 	   * 随机加入或创建房间
 	   * @param {string} roomName 房间名称
 	   * @param {Object} opts （可选）创建房间选项
-	   * @param {RoomOptions} opts.roomOptions （可选）创建房间选项，默认值为 null
+	   * @param {Object} opts.roomOptions （可选）创建房间选项，默认值为 null
 	   * @param {Array.<string>} opts.expectedUserIds （可选）邀请好友 ID 数组，默认值为 null
 	   */
 	  joinOrCreateRoom(
@@ -2850,8 +3369,8 @@
 	    if (!(typeof roomName === 'string')) {
 	      throw new TypeError(`${roomName} is not a string`);
 	    }
-	    if (roomOptions !== null && !(roomOptions instanceof RoomOptions)) {
-	      throw new TypeError(`${roomOptions} is not a RoomOptions`);
+	    if (roomOptions !== null && !(roomOptions instanceof Object)) {
+	      throw new TypeError(`${roomOptions} is not a Object`);
 	    }
 	    if (expectedUserIds !== null && !Array.isArray(expectedUserIds)) {
 	      throw new TypeError(`${expectedUserIds} is not an array with string`);
@@ -2864,7 +3383,7 @@
 	    };
 	    // 拷贝房间参数
 	    if (roomOptions != null) {
-	      const opts = roomOptions._toMsg();
+	      const opts = convertRoomOptions(roomOptions);
 	      this._cachedRoomMsg = Object.assign(this._cachedRoomMsg, opts);
 	    }
 	    if (expectedUserIds) {
@@ -2976,7 +3495,9 @@
 	   * 发送自定义消息
 	   * @param {number|string} eventId 事件 ID
 	   * @param {Object} eventData 事件参数
-	   * @param {SendEventOptions} options 发送事件选项
+	   * @param {Object} options 发送事件选项
+	   * @param {ReceiverGroup} options.receiverGroup 接收组
+	   * @param {Array.<number>} options.targetActorIds 接收者 Id。如果设置，将会覆盖 receiverGroup
 	   */
 	  sendEvent(eventId, eventData, options) {
 	    if (!(typeof eventId === 'string') && !(typeof eventId === 'number')) {
@@ -2985,8 +3506,8 @@
 	    if (!(typeof eventData === 'object')) {
 	      throw new TypeError(`${eventData} is not an object`);
 	    }
-	    if (!(options instanceof SendEventOptions)) {
-	      throw new TypeError(`${options} is not a SendEventOptions`);
+	    if (!(options instanceof Object)) {
+	      throw new TypeError(`${options} is not a Object`);
 	    }
 	    const msg = {
 	      cmd: 'direct',
@@ -2995,7 +3516,6 @@
 	      msg: eventData,
 	      receiverGroup: options.receiverGroup,
 	      toActorIds: options.targetActorIds,
-	      cachingOption: options.cachingOption,
 	    };
 	    this._send(msg);
 	  }
@@ -3103,7 +3623,7 @@
 	      throw new TypeError(`${msg} is not an object`);
 	    }
 	    const msgData = JSON.stringify(msg);
-	    debug$2(`${this.userId} msg: ${msg.op} -> ${msgData}`);
+	    debug$3(`${this.userId} msg: ${msg.op} -> ${msgData}`);
 	    this._websocket.send(msgData);
 	    // 心跳包
 	    this._stopKeepAlive();
@@ -3119,7 +3639,7 @@
 	    this._switchingServer = true;
 	    this._websocket = new browser(this._masterServer);
 	    this._websocket.onopen = () => {
-	      debug$2('Lobby websocket opened');
+	      debug$3('Lobby websocket opened');
 	      this._switchingServer = false;
 	      this._sessionOpen();
 	    };
@@ -3127,7 +3647,7 @@
 	      handleMasterMsg(this, msg);
 	    };
 	    this._websocket.onclose = evt => {
-	      debug$2(`Lobby websocket closed: ${evt.code}`);
+	      debug$3(`Lobby websocket closed: ${evt.code}`);
 	      if (evt.code === 1006) {
 	        // 连接失败
 	        if (this._masterServer === this._secondaryServer) {
@@ -3138,7 +3658,7 @@
 	          this._connectToMaster();
 	        }
 	      } else if (this._switchingServer) {
-	        debug$2('swiching server');
+	        debug$3('swiching server');
 	      } else {
 	        // 断开连接
 	        this.emit(Event.DISCONNECTED);
@@ -3155,7 +3675,7 @@
 	    this._switchingServer = true;
 	    this._websocket = new browser(this._gameServer);
 	    this._websocket.onopen = () => {
-	      debug$2('Game websocket opened');
+	      debug$3('Game websocket opened');
 	      this._switchingServer = false;
 	      this._sessionOpen();
 	    };
@@ -3163,12 +3683,12 @@
 	      handleGameMsg(this, msg);
 	    };
 	    this._websocket.onclose = evt => {
-	      debug$2('Game websocket closed');
+	      debug$3('Game websocket closed');
 	      if (evt.code === 1006) {
 	        // 连接失败
 	        this.emit(Event.CONNECT_FAILED, evt);
 	      } else if (this._switchingServer) {
-	        debug$2('swiching server');
+	        debug$3('swiching server');
 	      } else {
 	        // 断开连接
 	        this.emit(Event.DISCONNECTED);
@@ -3208,17 +3728,56 @@
 	  }
 	}
 
+	/**
+	 * 接收组枚举
+	 * @readonly
+	 * @enum {number}
+	 */
+	const ReceiverGroup = {
+	  /**
+	   * 其他人（除了自己之外的所有人）
+	   */
+	  Others: 0,
+	  /**
+	   * 所有人（包括自己）
+	   */
+	  All: 1,
+	  /**
+	   * 主机客户端
+	   */
+	  MasterClient: 2,
+	};
+
+	/**
+	 * 创建房间标识
+	 * @readonly
+	 * @enum {number}
+	 */
+	const CreateRoomFlag = {
+	  /**
+	   * Master 掉线后自动切换 Master
+	   */
+	  MasterAutoSwitch: 1,
+	  /**
+	   * 只允许 Master 设置房间属性
+	   */
+	  MasterUpdateRoomProperties: 2,
+	  /**
+	   * 只允许 Master 设置 Master
+	   */
+	  MasterSetMaster: 4,
+	};
+
 	const play = new Play();
 
 	exports.play = play;
+	exports.Play = Play;
 	exports.Region = Region;
-	exports.PlayOptions = PlayOptions;
 	exports.Room = Room;
 	exports.Player = Player;
 	exports.Event = Event;
-	exports.RoomOptions = RoomOptions;
-	exports.SendEventOptions = SendEventOptions;
 	exports.ReceiverGroup = ReceiverGroup;
+	exports.CreateRoomFlag = CreateRoomFlag;
 
 	Object.defineProperty(exports, '__esModule', { value: true });
 

@@ -1,5 +1,5 @@
 const Play = require('../play');
-const { play, PlayOptions, Region, Event, SendEventOptions } = Play;
+const { play, Region, Event, ReceiverGroup } = Play;
 
 cc.Class({
   extends: cc.Component,
@@ -25,15 +25,15 @@ cc.Class({
 
     const randId = parseInt(Math.random() * 1000000, 10);
     this.idLabel.string = `ID: ${randId}`;
-
-    const opts = new PlayOptions();
-    // 设置 APP ID
-    opts.appId = '315XFAYyIGPbd98vHPCBnLre-9Nh9j0Va';
-    // 设置 APP Key
-    opts.appKey = 'Y04sM6TzhMSBmCMkwfI3FpHc';
-    // 设置节点区域
-    opts.region = Region.EastChina;
-    play.init(opts);
+    
+    play.init({
+      // 设置 APP ID
+      appId: '315XFAYyIGPbd98vHPCBnLre-9Nh9j0Va',
+      // 设置 APP Key
+      appKey: 'Y04sM6TzhMSBmCMkwfI3FpHc',
+      // 设置节点区域
+      region: Region.EastChina,
+    });
     // 设置玩家 ID
     play.userId = randId.toString();
     // 注册事件
@@ -68,8 +68,9 @@ cc.Class({
             });
           }
         }
-        const options = new SendEventOptions();
-        play.sendEvent('win', { winnerId: play.room.masterId }, options);
+        play.sendEvent('win', 
+          { winnerId: play.room.masterId }, 
+          { receiverGroup: ReceiverGroup.All });
       }
     });
     play.on(Event.PLAYER_CUSTOM_PROPERTIES_CHANGED, data => {
