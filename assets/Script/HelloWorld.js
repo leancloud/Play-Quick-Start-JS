@@ -50,7 +50,8 @@ cc.Class({
     play.on(Event.ROOM_JOINED, () => {
       console.log('on joined room');
     });
-    play.on(Event.PLAYER_ROOM_JOINED, newPlayer => {
+    play.on(Event.PLAYER_ROOM_JOINED, (data) => {
+      const { newPlayer } = data;
       console.log(`new player: ${newPlayer.userId}`);
       if (play.player.isMaster()) {
         // 获取房间玩家列表
@@ -73,7 +74,7 @@ cc.Class({
           { receiverGroup: ReceiverGroup.All });
       }
     });
-    play.on(Event.PLAYER_CUSTOM_PROPERTIES_CHANGED, data => {
+    play.on(Event.PLAYER_CUSTOM_PROPERTIES_CHANGED, (data) => {
       const { player } = data;
       const { point } = player.getCustomProperties();
       console.log(`${player.userId}: ${point}`);
@@ -81,7 +82,7 @@ cc.Class({
         this.scoreLabel.string = `score:${point}`;
       }
     });
-    play.on(Event.CUSTOM_EVENT, event => {
+    play.on(Event.CUSTOM_EVENT, (event) => {
       // 解构事件参数
       const { eventId, eventData } = event;
       if (eventId === 'win') {
