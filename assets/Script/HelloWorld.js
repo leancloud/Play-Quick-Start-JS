@@ -47,6 +47,10 @@ cc.Class({
     play.on(Event.ROOM_CREATE_FAILED, () => {
       console.log('on create room failed');
     });
+    play.on(Event.ROOM_JOIN_FAILED, (error) => {
+      const { code, detail } = error;
+      console.log(`on join room failed: ${code}, ${detail}`);
+    });
     play.on(Event.ROOM_JOINED, () => {
       console.log('on joined room');
     });
