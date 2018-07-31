@@ -1,5 +1,5 @@
 const Play = require('../play');
-const { play, Region, Event, ReceiverGroup } = Play;
+const { play, Region, Event, ReceiverGroup, setAdapters } = Play;
 
 cc.Class({
   extends: cc.Component,
@@ -26,6 +26,12 @@ cc.Class({
     const randId = parseInt(Math.random() * 1000000, 10);
     this.idLabel.string = `ID: ${randId}`;
     
+    if (cc.sys.platform === cc.sys.ANDROID) {
+      const caPath = cc.url.raw('resources/cacert.pem');
+      setAdapters({
+        WebSocket: (url) => new WebSocket(url, null, caPath)
+      });
+    }
     play.init({
       // 设置 APP ID
       appId: '315XFAYyIGPbd98vHPCBnLre-9Nh9j0Va',
