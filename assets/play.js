@@ -3360,7 +3360,7 @@
 	var debug$1 = browser('Play:MasterHandler');
 
 	// 连接建立
-	function handleMasterServerSessionOpen(play, msg) {
+	function handleSessionOpen(play, msg) {
 	  play._sessionToken = msg.st;
 	  var player = new Player(play);
 	  player._userId = play.userId;
@@ -3438,14 +3438,14 @@
 	}
 
 	// 大厅消息处理
-	function handleMasterMsg(play, message) {
+	function handleLobbyMsg(play, message) {
 	  var msg = JSON.parse(message.data);
 	  debug$1(play.userId + ' Lobby msg: ' + msg.op + ' <- ' + message.data);
 	  switch (msg.cmd) {
 	    case 'session':
 	      switch (msg.op) {
 	        case 'opened':
-	          handleMasterServerSessionOpen(play, msg);
+	          handleSessionOpen(play, msg);
 	          break;
 	        default:
 	          console.error('no handler for lobby msg: ' + msg.op);
@@ -3910,7 +3910,7 @@
 
 	}
 
-	var version = "0.13.2";
+	var version = "0.13.3";
 
 	// SDK 版本号
 	var NorthCNServerURL =
@@ -4010,7 +4010,7 @@
 	      this._appKey = opts.appKey;
 	      this._region = opts.region;
 	      if (opts.autoJoinLobby === undefined) {
-	        this._autoJoinLobby = true;
+	        this._autoJoinLobby = false;
 	      } else {
 	        this._autoJoinLobby = opts.autoJoinLobby;
 	      }
@@ -4586,7 +4586,7 @@
 	        _this5._sessionOpen();
 	      };
 	      this._websocket.onmessage = function (msg) {
-	        handleMasterMsg(_this5, msg);
+	        handleLobbyMsg(_this5, msg);
 	      };
 	      this._websocket.onclose = function (evt) {
 	        debug$3('Lobby websocket closed: ' + evt.code);

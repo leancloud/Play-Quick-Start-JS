@@ -43,7 +43,7 @@ cc.Class({
     // 设置玩家 ID
     play.userId = randId.toString();
     // 注册事件
-    play.on(Event.LOBBY_JOINED, () => {
+    play.on(Event.CONNECTED, () => {
       console.log('on joined lobby');
       play.joinOrCreateRoom(roomName);
     });
