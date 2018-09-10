@@ -1,5 +1,5 @@
 const Play = require('../play');
-const { play, Region, Event, ReceiverGroup, setAdapters } = Play;
+const { play, Region, Event, ReceiverGroup, setAdapters, LogLevel, setLogger } = Play;
 
 cc.Class({
   extends: cc.Component,
@@ -21,8 +21,6 @@ cc.Class({
 
   // use this for initialization
   onLoad() {
-    const roomName = 'ccc_room';
-
     const randId = parseInt(Math.random() * 1000000, 10);
     this.idLabel.string = `ID: ${randId}`;
     
@@ -32,19 +30,29 @@ cc.Class({
         WebSocket: (url) => new WebSocket(url, null, caPath)
       });
     }
+    
+    setLogger({
+      [LogLevel.Debug]: console.log.bind(console),
+    });
+
     play.init({
       // 设置 APP ID
-      appId: '315XFAYyIGPbd98vHPCBnLre-9Nh9j0Va',
+      appId: 'vwDice44bmatVulkQvErSg5C-gzGzoHsz',
       // 设置 APP Key
-      appKey: 'Y04sM6TzhMSBmCMkwfI3FpHc',
+      appKey: 'caOtXw8Lm1jFmPjdtkPSM0mC',
       // 设置节点区域
-      region: Region.EastChina,
+      region: Region.NorthChina,
     });
     // 设置玩家 ID
     play.userId = randId.toString();
     // 注册事件
     play.on(Event.CONNECTED, () => {
       console.log('on joined lobby');
+      const now = new Date();
+      const hour = now.getHours();
+      const minute = now.getMinutes();
+      const roomName = `${hour}_${minute}`;
+      this.idLabel.string = roomName;
       play.joinOrCreateRoom(roomName);
     });
     play.on(Event.ROOM_CREATED, () => {
