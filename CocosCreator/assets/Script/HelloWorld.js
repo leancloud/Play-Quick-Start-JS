@@ -37,9 +37,9 @@ cc.Class({
 
     play.init({
       // 设置 APP ID
-      appId: 'vwDice44bmatVulkQvErSg5C-gzGzoHsz',
+      appId: 'g2b0X6OmlNy7e4QqVERbgRJR-gzGzoHsz',
       // 设置 APP Key
-      appKey: 'caOtXw8Lm1jFmPjdtkPSM0mC',
+      appKey: 'CM91rNV8cPVHKraoFQaopMVT',
       // 设置节点区域
       region: Region.NorthChina,
     });
