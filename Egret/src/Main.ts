@@ -155,9 +155,9 @@ class Main extends eui.UILayer {
         this.addChild(button);
         button.addEventListener(egret.TouchEvent.TOUCH_TAP, this.onButtonClick, this);
 
-        const { Play, Region, Event, setLogger, LogLevel, ReceiverGroup } = play;
+        const { Client, Region, Event, setLogger, LogLevel, ReceiverGroup } = Play;
         const randId = Math.floor(Math.random() * 1000000);
-        const p = new Play({
+        const p = new Client({
             // 设置 APP ID
             appId: 'g2b0X6OmlNy7e4QqVERbgRJR-gzGzoHsz',
             // 设置 APP Key

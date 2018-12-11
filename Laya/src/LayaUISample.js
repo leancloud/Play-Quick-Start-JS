@@ -1,8 +1,8 @@
 ﻿var Loader = laya.net.Loader;
 var Handler = laya.utils.Handler;
 var WebGL = laya.webgl.WebGL;
-const { play: p,
-	Region, Event, ReceiverGroup, setAdapters, LogLevel, setLogger } = play;
+const { Client,
+	Region, Event, ReceiverGroup, setAdapters, LogLevel, setLogger } = Play;
 
 // 创建TestPageUI的子类
 function TestUI()
@@ -80,16 +80,15 @@ function onLoaded()
       [LogLevel.Debug]: console.log.bind(console),
     });
 
-    p.init({
+    const p = new Client({
       // 设置 APP ID
       appId: 'g2b0X6OmlNy7e4QqVERbgRJR-gzGzoHsz',
       // 设置 APP Key
       appKey: 'CM91rNV8cPVHKraoFQaopMVT',
       // 设置节点区域
       region: Region.NorthChina,
+      userId: randId.toString()
     });
-    // 设置玩家 ID
-    p.userId = randId.toString();
     // 注册事件
     p.on(Event.CONNECTED, () => {
       console.log('on joined lobby');

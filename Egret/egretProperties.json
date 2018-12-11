@@ -22,7 +22,7 @@
       "name": "promise"
     },
     {
-      "name": "play",
+      "name": "Play",
       "path": "./libs/play"
     }
   ]

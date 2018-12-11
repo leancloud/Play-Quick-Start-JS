@@ -215,9 +215,9 @@ var Main = (function (_super) {
         button.verticalCenter = 0;
         this.addChild(button);
         button.addEventListener(egret.TouchEvent.TOUCH_TAP, this.onButtonClick, this);
-        var Play = play.Play, Region = play.Region, Event = play.Event, setLogger = play.setLogger, LogLevel = play.LogLevel, ReceiverGroup = play.ReceiverGroup;
+        var Client = Play.Client, Region = Play.Region, Event = Play.Event, setLogger = Play.setLogger, LogLevel = Play.LogLevel, ReceiverGroup = Play.ReceiverGroup;
         var randId = Math.floor(Math.random() * 1000000);
-        var p = new Play({
+        var p = new Client({
             // 设置 APP ID
             appId: 'g2b0X6OmlNy7e4QqVERbgRJR-gzGzoHsz',
             // 设置 APP Key

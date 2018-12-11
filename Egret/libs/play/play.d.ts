@@ -1,4 +1,4 @@
-export as namespace play;
+export as namespace Play;
 
 declare class EventEmitter<T> {
   on<K extends keyof T>(event: K, listener: (payload: T[K]) => any): this;
@@ -191,7 +191,7 @@ export class Room {
   getCustomProperties(): CustomProperties;
 }
 
-export class Play extends EventEmitter<PlayEvent> {
+export class Client extends EventEmitter<PlayEvent> {
   readonly room: Room;
 
   readonly player: Player;
