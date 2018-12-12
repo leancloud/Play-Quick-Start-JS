@@ -1,4 +1,3 @@
-const Play = require("../play");
 const {
   Client,
   Region,
