@@ -166,136 +166,140 @@ var Main = (function (_super) {
      * Create scene interface
      */
     Main.prototype.createGameScene = function () {
-        var sky = this.createBitmapByName("bg_jpg");
-        this.addChild(sky);
-        var stageW = this.stage.stageWidth;
-        var stageH = this.stage.stageHeight;
-        sky.width = stageW;
-        sky.height = stageH;
-        var topMask = new egret.Shape();
-        topMask.graphics.beginFill(0x000000, 0.5);
-        topMask.graphics.drawRect(0, 0, stageW, 172);
-        topMask.graphics.endFill();
-        topMask.y = 33;
-        this.addChild(topMask);
-        var icon = this.createBitmapByName("egret_icon_png");
-        this.addChild(icon);
-        icon.x = 26;
-        icon.y = 33;
-        var line = new egret.Shape();
-        line.graphics.lineStyle(2, 0xffffff);
-        line.graphics.moveTo(0, 0);
-        line.graphics.lineTo(0, 117);
-        line.graphics.endFill();
-        line.x = 172;
-        line.y = 61;
-        this.addChild(line);
-        var colorLabel = new egret.TextField();
-        colorLabel.textColor = 0xffffff;
-        colorLabel.width = stageW - 172;
-        colorLabel.textAlign = "center";
-        colorLabel.text = "Hello Egret";
-        colorLabel.size = 24;
-        colorLabel.x = 172;
-        colorLabel.y = 80;
-        this.addChild(colorLabel);
-        var textfield = new egret.TextField();
-        this.addChild(textfield);
-        textfield.alpha = 0;
-        textfield.width = stageW - 172;
-        textfield.textAlign = egret.HorizontalAlign.CENTER;
-        textfield.size = 24;
-        textfield.textColor = 0xffffff;
-        textfield.x = 172;
-        textfield.y = 135;
-        this.textfield = textfield;
-        var button = new eui.Button();
-        button.label = "Click!";
-        button.horizontalCenter = 0;
-        button.verticalCenter = 0;
-        this.addChild(button);
-        button.addEventListener(egret.TouchEvent.TOUCH_TAP, this.onButtonClick, this);
-        var Client = Play.Client, Region = Play.Region, Event = Play.Event, setLogger = Play.setLogger, LogLevel = Play.LogLevel, ReceiverGroup = Play.ReceiverGroup;
-        var randId = Math.floor(Math.random() * 1000000);
-        var p = new Client({
-            // 设置 APP ID
-            appId: 'g2b0X6OmlNy7e4QqVERbgRJR-gzGzoHsz',
-            // 设置 APP Key
-            appKey: 'CM91rNV8cPVHKraoFQaopMVT',
-            // 设置节点区域
-            region: Region.NorthChina,
-            userId: randId.toString()
-        });
-        // 注册事件
-        p.on(Event.CONNECTED, function () {
-            var now = new Date();
-            var hour = now.getHours();
-            var minute = now.getMinutes();
-            var roomName = hour + "_" + minute;
-            console.log("roomName: " + roomName);
-            p.joinOrCreateRoom(roomName);
-        });
-        p.on(Event.ROOM_CREATED, function () {
-            console.log('on created room');
-        });
-        p.on(Event.ROOM_CREATE_FAILED, function () {
-            console.log('on create room failed');
-        });
-        p.on(Event.ROOM_JOIN_FAILED, function (error) {
-            var code = error.code, detail = error.detail;
-            console.log("on join room failed: " + code + ", " + detail);
-        });
-        p.on(Event.ROOM_JOINED, function () {
-            console.log('on joined room');
-        });
-        p.on(Event.PLAYER_ROOM_JOINED, function (data) {
-            var newPlayer = data.newPlayer;
-            console.log("new player: " + newPlayer.userId);
-            if (p.player.isMaster()) {
-                // 获取房间玩家列表
-                var playerList = p.room.playerList;
-                for (var i = 0; i < playerList.length; i++) {
-                    var player = playerList[i];
-                    // 判断如果是房主，则设置 10 分，否则设置 5 分
-                    if (player.isMaster()) {
-                        player.setCustomProperties({
-                            point: 10,
+        return __awaiter(this, void 0, void 0, function () {
+            var _this = this;
+            var sky, stageW, stageH, topMask, icon, line, colorLabel, textfield, button, Client, Event, setLogger, LogLevel, ReceiverGroup, randId, p, now, hour, minute, roomName;
+            return __generator(this, function (_a) {
+                switch (_a.label) {
+                    case 0:
+                        sky = this.createBitmapByName("bg_jpg");
+                        this.addChild(sky);
+                        stageW = this.stage.stageWidth;
+                        stageH = this.stage.stageHeight;
+                        sky.width = stageW;
+                        sky.height = stageH;
+                        topMask = new egret.Shape();
+                        topMask.graphics.beginFill(0x000000, 0.5);
+                        topMask.graphics.drawRect(0, 0, stageW, 172);
+                        topMask.graphics.endFill();
+                        topMask.y = 33;
+                        this.addChild(topMask);
+                        icon = this.createBitmapByName("egret_icon_png");
+                        this.addChild(icon);
+                        icon.x = 26;
+                        icon.y = 33;
+                        line = new egret.Shape();
+                        line.graphics.lineStyle(2, 0xffffff);
+                        line.graphics.moveTo(0, 0);
+                        line.graphics.lineTo(0, 117);
+                        line.graphics.endFill();
+                        line.x = 172;
+                        line.y = 61;
+                        this.addChild(line);
+                        colorLabel = new egret.TextField();
+                        colorLabel.textColor = 0xffffff;
+                        colorLabel.width = stageW - 172;
+                        colorLabel.textAlign = "center";
+                        colorLabel.text = "Hello Egret";
+                        colorLabel.size = 24;
+                        colorLabel.x = 172;
+                        colorLabel.y = 80;
+                        this.addChild(colorLabel);
+                        textfield = new egret.TextField();
+                        this.addChild(textfield);
+                        textfield.alpha = 0;
+                        textfield.width = stageW - 172;
+                        textfield.textAlign = egret.HorizontalAlign.CENTER;
+                        textfield.size = 24;
+                        textfield.textColor = 0xffffff;
+                        textfield.x = 172;
+                        textfield.y = 135;
+                        this.textfield = textfield;
+                        button = new eui.Button();
+                        button.label = "Click!";
+                        button.horizontalCenter = 0;
+                        button.verticalCenter = 0;
+                        this.addChild(button);
+                        button.addEventListener(egret.TouchEvent.TOUCH_TAP, this.onButtonClick, this);
+                        Client = Play.Client, Event = Play.Event, setLogger = Play.setLogger, LogLevel = Play.LogLevel, ReceiverGroup = Play.ReceiverGroup;
+                        randId = Math.floor(Math.random() * 1000000);
+                        p = new Client({
+                            // 设置 APP ID
+                            appId: 'g2b0X6OmlNy7e4QqVERbgRJR-gzGzoHsz',
+                            // 设置 APP Key
+                            appKey: 'CM91rNV8cPVHKraoFQaopMVT',
+                            userId: randId.toString()
                         });
-                    }
-                    else {
-                        player.setCustomProperties({
-                            point: 5,
+                        return [4 /*yield*/, p.connect()];
+                    case 1:
+                        _a.sent();
+                        now = new Date();
+                        hour = now.getHours();
+                        minute = now.getMinutes();
+                        roomName = hour + "_" + minute;
+                        console.log("roomName: " + roomName);
+                        return [4 /*yield*/, p.joinOrCreateRoom(roomName)];
+                    case 2:
+                        _a.sent();
+                        p.on(Event.PLAYER_ROOM_JOINED, function (data) {
+                            var newPlayer = data.newPlayer;
+                            console.log("new player: " + newPlayer.userId);
+                            if (p.player.isMaster()) {
+                                // 获取房间玩家列表
+                                var playerList = p.room.playerList;
+                                for (var i = 0; i < playerList.length; i++) {
+                                    var player = playerList[i];
+                                    // 判断如果是房主，则设置 10 分，否则设置 5 分
+                                    if (player.isMaster()) {
+                                        player.setCustomProperties({
+                                            point: 10,
+                                        });
+                                    }
+                                    else {
+                                        player.setCustomProperties({
+                                            point: 5,
+                                        });
+                                    }
+                                }
+                                p.sendEvent('win', { winnerId: p.room.masterId }, { receiverGroup: ReceiverGroup.All });
+                            }
                         });
-                    }
+                        p.on(Event.PLAYER_CUSTOM_PROPERTIES_CHANGED, function (data) {
+                            var player = data.player;
+                            var point = player.getCustomProperties().point;
+                            console.log(player.userId + ": " + point);
+                            if (player.isLocal()) {
+                                console.log("score:" + point);
+                            }
+                        });
+                        p.on(Event.CUSTOM_EVENT, function (event) { return __awaiter(_this, void 0, void 0, function () {
+                            var eventId, eventData, winnerId;
+                            return __generator(this, function (_a) {
+                                switch (_a.label) {
+                                    case 0:
+                                        eventId = event.eventId, eventData = event.eventData;
+                                        if (!(eventId === 'win')) return [3 /*break*/, 2];
+                                        winnerId = eventData.winnerId;
+                                        console.log("winnerId: " + winnerId);
+                                        // 如果胜利者是自己，则显示胜利 UI；否则显示失败 UI
+                                        if (p.player.actorId === winnerId) {
+                                            console.log('win');
+                                        }
+                                        else {
+                                            console.log('lose');
+                                        }
+                                        return [4 /*yield*/, p.disconnect()];
+                                    case 1:
+                                        _a.sent();
+                                        _a.label = 2;
+                                    case 2: return [2 /*return*/];
+                                }
+                            });
+                        }); });
+                        return [2 /*return*/];
                 }
-                p.sendEvent('win', { winnerId: p.room.masterId }, { receiverGroup: ReceiverGroup.All });
-            }
+            });
         });
-        p.on(Event.PLAYER_CUSTOM_PROPERTIES_CHANGED, function (data) {
-            var player = data.player;
-            var point = player.getCustomProperties().point;
-            console.log(player.userId + ": " + point);
-            if (player.isLocal()) {
-                console.log("score:" + point);
-            }
-        });
-        p.on(Event.CUSTOM_EVENT, function (event) {
-            // 解构事件参数
-            var eventId = event.eventId, eventData = event.eventData;
-            if (eventId === 'win') {
-                var winnerId = eventData.winnerId;
-                console.log("winnerId: " + winnerId);
-                // 如果胜利者是自己，则显示胜利 UI；否则显示失败 UI
-                if (p.player.actorId === winnerId) {
-                    console.log('win');
-                }
-                else {
-                    console.log('lose');
-                }
-                p.disconnect();
-            }
-        });
-        p.connect();
     };
     /**
      * 根据name关键字创建一个Bitmap对象。name属性请参考resources/resource.json配置文件的内容。

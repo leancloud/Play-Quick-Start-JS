@@ -14,15 +14,6 @@ declare class EventEmitter<T> {
   emit<K extends keyof T>(evt: K | string, ...args: any[]): boolean;
 }
 
-export enum Region {
-  /** 华北节点 */
-  NorthChina,
-  /** 华东节点 */
-  EastChina,
-  /** 美国节点 */
-  NorthAmerica,
-}
-
 export enum Event {
   /** 连接成功 */
   CONNECTED = 'connected',
@@ -157,7 +148,7 @@ export class Player {
     opts?: {
       expectedValues?: CustomProperties;
     }
-  ): void;
+  ): Promise<void>;
 
   getCustomProperties(): CustomProperties;
 }
@@ -186,7 +177,7 @@ export class Room {
     opts?: {
       expectedValues?: CustomProperties;
     }
-  ): void;
+  ): Promise<void>;
 
   getCustomProperties(): CustomProperties;
 }
@@ -201,39 +192,38 @@ export class Client extends EventEmitter<PlayEvent> {
   constructor(opts: {
     appId: string;
     appKey: string;
-    region: Region;
     userId: string;
     ssl?: boolean;
     feature?: string;
     gameVersion?: string;
   });
 
-  connect(): void;
+  connect(): Promise<void>;
 
-  reconnect(): void;
+  reconnect(): Promise<void>;
 
-  reconnectAndRejoin(): void;
+  reconnectAndRejoin(): Promise<void>;
 
-  disconnect(): void;
+  disconnect(): Promise<void>;
 
-  joinLobby(): void;
+  joinLobby(): Promise<void>;
 
-  leaveLobby(): void;
+  leaveLobby(): Promise<void>;
 
   createRoom(opts?: {
     roomName?: string;
     roomOptions?: Object;
     expectedUserIds?: string[];
-  }): void;
+  }): Promise<void>;
 
   joinRoom(
     roomName: string,
     opts?: {
       expectedUserIds?: string[];
     }
-  ): void;
+  ): Promise<void>;
 
-  rejoinRoom(roomName: string): void;
+  rejoinRoom(roomName: string): Promise<void>;
 
   joinOrCreateRoom(
     roomName: string,
@@ -241,18 +231,18 @@ export class Client extends EventEmitter<PlayEvent> {
       roomOptions?: Object;
       expectedUserIds: string[];
     }
-  ): void;
+  ): Promise<void>;
 
   joinRandomRoom(opts?: {
     matchProperties?: Object;
     expectedUserIds?: string[];
-  }): void;
+  }): Promise<void>;
 
-  setRoomOpened(opened: boolean): void;
+  setRoomOpened(opened: boolean): Promise<void>;
 
-  setRoomVisible(visible: boolean): void;
+  setRoomVisible(visible: boolean): Promise<void>;
 
-  setMaster(newMasterId: number): void;
+  setMaster(newMasterId: number): Promise<void>;
 
   sendEvent(
     eventId: number | string,
@@ -261,9 +251,9 @@ export class Client extends EventEmitter<PlayEvent> {
       receiverGroup?: ReceiverGroup;
       targetActorIds?: number[];
     }
-  ): void;
+  ): Promise<void>;
 
-  leaveRoom(): void;
+  leaveRoom(): Promise<void>;
 }
 
 export enum CreateRoomFlag {
@@ -284,3 +274,8 @@ export function setLogger(logger: {
   Warn: (...args: any[]) => any;
   Error: (...args: any[]) => any;
 }): void;
+
+export enum PlayErrorCode {
+  OPEN_WEBSOCKET_ERROR = 10001,
+  SEND_MESSAGE_STATE_ERROR = 10002,
+}
