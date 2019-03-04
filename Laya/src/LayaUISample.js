@@ -1,8 +1,7 @@
 ﻿var Loader = laya.net.Loader;
 var Handler = laya.utils.Handler;
 var WebGL = laya.webgl.WebGL;
-const { Client,
-	Region, Event, ReceiverGroup, setAdapters, LogLevel, setLogger } = Play;
+const { Client, Event, ReceiverGroup, setAdapters, LogLevel, setLogger } = Play;
 
 // 创建TestPageUI的子类
 function TestUI()
@@ -68,7 +67,7 @@ function beginLoad(){
 	Laya.loader.load("res/atlas/comp.atlas", Handler.create(null, onLoaded));
 }
 
-function onLoaded()
+async function onLoaded()
 {
 	Laya.stage.addChild(new TestUI());
 
@@ -85,33 +84,16 @@ function onLoaded()
       appId: 'g2b0X6OmlNy7e4QqVERbgRJR-gzGzoHsz',
       // 设置 APP Key
       appKey: 'CM91rNV8cPVHKraoFQaopMVT',
-      // 设置节点区域
-      region: Region.NorthChina,
       userId: randId.toString()
     });
-    // 注册事件
-    p.on(Event.CONNECTED, () => {
-      console.log('on joined lobby');
-      const now = new Date();
-      const hour = now.getHours();
-      const minute = now.getMinutes();
-      const roomName = `${hour}_${minute}`;
-	  console.log(`room name: ${roomName}`);
-      p.joinOrCreateRoom(roomName);
-    });
-    p.on(Event.ROOM_CREATED, () => {
-      console.log('on created room');
-    });
-    p.on(Event.ROOM_CREATE_FAILED, () => {
-      console.log('on create room failed');
-    });
-    p.on(Event.ROOM_JOIN_FAILED, (error) => {
-      const { code, detail } = error;
-      console.log(`on join room failed: ${code}, ${detail}`);
-    });
-    p.on(Event.ROOM_JOINED, () => {
-      console.log('on joined room');
-    });
+
+    await p.connect();
+    const now = new Date();
+    const hour = now.getHours();
+    const minute = now.getMinutes();
+    const roomName = `${hour}_${minute}`;
+    await p.joinOrCreateRoom(roomName);
+
     p.on(Event.PLAYER_ROOM_JOINED, (data) => {
       const { newPlayer } = data;
       console.log(`new player: ${newPlayer.userId}`);
@@ -141,10 +123,10 @@ function onLoaded()
       const { point } = player.getCustomProperties();
       console.log(`${player.userId}: ${point}`);
       if (player.isLocal()) {
-		  console.log(`score:${point}`);
+		    console.log(`score:${point}`);
       }
     });
-    p.on(Event.CUSTOM_EVENT, (event) => {
+    p.on(Event.CUSTOM_EVENT, async (event) => {
       // 解构事件参数
       const { eventId, eventData } = event;
       if (eventId === 'win') {
@@ -152,13 +134,12 @@ function onLoaded()
         console.log(`winnerId: ${winnerId}`);
         // 如果胜利者是自己，则显示胜利 UI；否则显示失败 UI
         if (p.player.actorId === winnerId) {
-			console.log('win');
+			    console.log('win');
         } else {
-			console.log('lose');
+			    console.log('lose');
         }
-        p.disconnect();
+        await p.disconnect();
       }
     });
-    p.connect();
 }
 

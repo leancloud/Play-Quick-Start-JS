@@ -97,7 +97,7 @@ class Main extends eui.UILayer {
      * 创建场景界面
      * Create scene interface
      */
-    protected createGameScene(): void {
+    protected async createGameScene() {
         let sky = this.createBitmapByName("bg_jpg");
         this.addChild(sky);
         let stageW = this.stage.stageWidth;
@@ -155,39 +155,22 @@ class Main extends eui.UILayer {
         this.addChild(button);
         button.addEventListener(egret.TouchEvent.TOUCH_TAP, this.onButtonClick, this);
 
-        const { Client, Region, Event, setLogger, LogLevel, ReceiverGroup } = Play;
+        const { Client, Event, setLogger, LogLevel, ReceiverGroup } = Play;
         const randId = Math.floor(Math.random() * 1000000);
         const p = new Client({
             // 设置 APP ID
             appId: 'g2b0X6OmlNy7e4QqVERbgRJR-gzGzoHsz',
             // 设置 APP Key
             appKey: 'CM91rNV8cPVHKraoFQaopMVT',
-            // 设置节点区域
-            region: Region.NorthChina,
             userId: randId.toString()
         });
-        // 注册事件
-        p.on(Event.CONNECTED, () => {
+        await p.connect();
         const now = new Date();
         const hour = now.getHours();
         const minute = now.getMinutes();
         const roomName = `${hour}_${minute}`;
         console.log(`roomName: ${roomName}`);
-        p.joinOrCreateRoom(roomName);
-        });
-        p.on(Event.ROOM_CREATED, () => {
-            console.log('on created room');
-        });
-        p.on(Event.ROOM_CREATE_FAILED, () => {
-            console.log('on create room failed');
-        });
-        p.on(Event.ROOM_JOIN_FAILED, (error) => {
-            const { code, detail } = error;
-            console.log(`on join room failed: ${code}, ${detail}`);
-        });
-        p.on(Event.ROOM_JOINED, () => {
-            console.log('on joined room');
-        });
+        await p.joinOrCreateRoom(roomName);
         p.on(Event.PLAYER_ROOM_JOINED, (data) => {
             const { newPlayer } = data;
             console.log(`new player: ${newPlayer.userId}`);
@@ -220,7 +203,7 @@ class Main extends eui.UILayer {
                 console.log(`score:${point}`);
             }
         });
-        p.on(Event.CUSTOM_EVENT, (event) => {
+        p.on(Event.CUSTOM_EVENT, async (event) => {
             // 解构事件参数
             const { eventId, eventData } = event;
             if (eventId === 'win') {
@@ -232,10 +215,9 @@ class Main extends eui.UILayer {
                 } else {
                     console.log('lose');
                 }
-                p.disconnect();
+                await p.disconnect();
             }
         });
-        p.connect();
     }
     /**
      * 根据name关键字创建一个Bitmap对象。name属性请参考resources/resource.json配置文件的内容。

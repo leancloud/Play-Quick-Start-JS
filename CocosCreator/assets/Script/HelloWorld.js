@@ -1,12 +1,4 @@
-const {
-  Client,
-  Region,
-  Event,
-  ReceiverGroup,
-  setAdapters,
-  LogLevel,
-  setLogger
-} = Play;
+const { Client, Event, ReceiverGroup, setAdapters, LogLevel, setLogger } = Play;
 
 cc.Class({
   extends: cc.Component,
@@ -27,7 +19,7 @@ cc.Class({
   },
 
   // use this for initialization
-  onLoad() {
+  async onLoad() {
     const randId = parseInt(Math.random() * 1000000, 10);
     this.idLabel.string = `ID: ${randId}`;
 
@@ -44,36 +36,19 @@ cc.Class({
 
     const play = new Client({
       // 设置 APP ID
-      appId: "g2b0X6OmlNy7e4QqVERbgRJR-gzGzoHsz",
+      appId: "1yzaPvxYPs2DLQXIccBzb0k1-gzGzoHsz",
       // 设置 APP Key
-      appKey: "CM91rNV8cPVHKraoFQaopMVT",
-      // 设置节点区域
-      region: Region.NorthChina,
+      appKey: "Nlt1SIVxxFrMPut6SvfEJiYT",
       userId: randId.toString()
     });
-    // 注册事件
-    play.on(Event.CONNECTED, () => {
-      console.log("on joined lobby");
-      const now = new Date();
-      const hour = now.getHours();
-      const minute = now.getMinutes();
-      const roomName = `${hour}_${minute}`;
-      this.idLabel.string = roomName;
-      play.joinOrCreateRoom(roomName);
-    });
-    play.on(Event.ROOM_CREATED, () => {
-      console.log("on created room");
-    });
-    play.on(Event.ROOM_CREATE_FAILED, () => {
-      console.log("on create room failed");
-    });
-    play.on(Event.ROOM_JOIN_FAILED, error => {
-      const { code, detail } = error;
-      console.log(`on join room failed: ${code}, ${detail}`);
-    });
-    play.on(Event.ROOM_JOINED, () => {
-      console.log("on joined room");
-    });
+
+    await play.connect();
+    const now = new Date();
+    const hour = now.getHours();
+    const minute = now.getMinutes();
+    const roomName = `${hour}_${minute}`;
+    this.idLabel.string = roomName;
+    await play.joinOrCreateRoom(roomName);
     play.on(Event.PLAYER_ROOM_JOINED, data => {
       const { newPlayer } = data;
       console.log(`new player: ${newPlayer.userId}`);
@@ -108,7 +83,7 @@ cc.Class({
         this.scoreLabel.string = `score:${point}`;
       }
     });
-    play.on(Event.CUSTOM_EVENT, event => {
+    play.on(Event.CUSTOM_EVENT, async event => {
       // 解构事件参数
       const { eventId, eventData } = event;
       if (eventId === "win") {
@@ -120,9 +95,8 @@ cc.Class({
         } else {
           this.resultLabel.string = "lose";
         }
-        play.disconnect();
+        await play.disconnect();
       }
     });
-    play.connect();
   }
 });
