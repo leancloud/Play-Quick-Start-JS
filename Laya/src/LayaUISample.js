@@ -3,6 +3,8 @@ var Handler = laya.utils.Handler;
 var WebGL = laya.webgl.WebGL;
 const { Client, Event, ReceiverGroup, setAdapters, LogLevel, setLogger } = Play;
 
+const GAME_OVER_EVENT = 100;
+
 // 创建TestPageUI的子类
 function TestUI()
 {
@@ -97,13 +99,13 @@ async function onLoaded()
     p.on(Event.PLAYER_ROOM_JOINED, (data) => {
       const { newPlayer } = data;
       console.log(`new player: ${newPlayer.userId}`);
-      if (p.player.isMaster()) {
+      if (p.player.isMaster) {
         // 获取房间玩家列表
         const playerList = p.room.playerList;
         for (let i = 0; i < playerList.length; i++) {
           const player = playerList[i];
           // 判断如果是房主，则设置 10 分，否则设置 5 分
-          if (player.isMaster()) {
+          if (player.isMaster) {
             player.setCustomProperties({
               point: 10,
             });
@@ -113,23 +115,23 @@ async function onLoaded()
             });
           }
         }
-        p.sendEvent('win', 
+        p.sendEvent(GAME_OVER_EVENT, 
           { winnerId: p.room.masterId }, 
           { receiverGroup: ReceiverGroup.All });
       }
     });
     p.on(Event.PLAYER_CUSTOM_PROPERTIES_CHANGED, (data) => {
       const { player } = data;
-      const { point } = player.getCustomProperties();
+      const { point } = player.customProperties;
       console.log(`${player.userId}: ${point}`);
-      if (player.isLocal()) {
+      if (player.isLocal) {
 		    console.log(`score:${point}`);
       }
     });
     p.on(Event.CUSTOM_EVENT, async (event) => {
       // 解构事件参数
       const { eventId, eventData } = event;
-      if (eventId === 'win') {
+      if (eventId === GAME_OVER_EVENT) {
         const { winnerId } = eventData;
         console.log(`winnerId: ${winnerId}`);
         // 如果胜利者是自己，则显示胜利 UI；否则显示失败 UI
@@ -138,7 +140,7 @@ async function onLoaded()
         } else {
 			    console.log('lose');
         }
-        await p.disconnect();
+        await p.close();
       }
     });
 }
