@@ -4,10 +4,10 @@
 	(factory((global.Play = {})));
 }(this, (function (exports) { 'use strict';
 
-	var commonjsGlobal = typeof window !== 'undefined' ? window : typeof global !== 'undefined' ? global : typeof self !== 'undefined' ? self : {};
+	var commonjsGlobal = typeof globalThis !== 'undefined' ? globalThis : typeof window !== 'undefined' ? window : typeof global !== 'undefined' ? global : typeof self !== 'undefined' ? self : {};
 
 	function unwrapExports (x) {
-		return x && x.__esModule && Object.prototype.hasOwnProperty.call(x, 'default') ? x.default : x;
+		return x && x.__esModule && Object.prototype.hasOwnProperty.call(x, 'default') ? x['default'] : x;
 	}
 
 	function createCommonjsModule(fn, module) {
@@ -55,7 +55,7 @@
 	});
 
 	var _core = createCommonjsModule(function (module) {
-	var core = module.exports = { version: '2.6.1' };
+	var core = module.exports = { version: '2.6.9' };
 	if (typeof __e == 'number') __e = core; // eslint-disable-line no-undef
 	});
 	var _core_1 = _core.version;
@@ -300,7 +300,7 @@
 	})('versions', []).push({
 	  version: _core.version,
 	  mode: 'pure',
-	  copyright: '© 2018 Denis Pushkarev (zloirock.ru)'
+	  copyright: '© 2019 Denis Pushkarev (zloirock.ru)'
 	});
 	});
 
@@ -765,6 +765,8 @@
 
 
 
+
+
 	var gOPD$1 = _objectGopd.f;
 	var dP$1 = _objectDp.f;
 	var gOPN$1 = _objectGopnExt.f;
@@ -779,7 +781,7 @@
 	var AllSymbols = _shared('symbols');
 	var OPSymbols = _shared('op-symbols');
 	var ObjectProto$1 = Object[PROTOTYPE$2];
-	var USE_NATIVE = typeof $Symbol == 'function';
+	var USE_NATIVE = typeof $Symbol == 'function' && !!_objectGops.f;
 	var QObject = _global.QObject;
 	// Don't use setters in Qt Script, https://github.com/zloirock/core-js/issues/173
 	var setter = !QObject || !QObject[PROTOTYPE$2] || !QObject[PROTOTYPE$2].findChild;
@@ -940,6 +942,16 @@
 	  getOwnPropertySymbols: $getOwnPropertySymbols
 	});
 
+	// Chrome 38 and 39 `Object.getOwnPropertySymbols` fails on primitives
+	// https://bugs.chromium.org/p/v8/issues/detail?id=3443
+	var FAILS_ON_PRIMITIVES = _fails(function () { _objectGops.f(1); });
+
+	_export(_export.S + _export.F * FAILS_ON_PRIMITIVES, 'Object', {
+	  getOwnPropertySymbols: function getOwnPropertySymbols(it) {
+	    return _objectGops.f(_toObject(it));
+	  }
+	});
+
 	// 24.3.2 JSON.stringify(value [, replacer [, space]])
 	$JSON && _export(_export.S + _export.F * (!USE_NATIVE || _fails(function () {
 	  var S = $Symbol();
@@ -1009,6 +1021,1461 @@
 	});
 
 	var _typeof = unwrapExports(_typeof_1);
+
+	var runtime = createCommonjsModule(function (module) {
+	/**
+	 * Copyright (c) 2014-present, Facebook, Inc.
+	 *
+	 * This source code is licensed under the MIT license found in the
+	 * LICENSE file in the root directory of this source tree.
+	 */
+
+	!(function(global) {
+
+	  var Op = Object.prototype;
+	  var hasOwn = Op.hasOwnProperty;
+	  var undefined; // More compressible than void 0.
+	  var $Symbol = typeof Symbol === "function" ? Symbol : {};
+	  var iteratorSymbol = $Symbol.iterator || "@@iterator";
+	  var asyncIteratorSymbol = $Symbol.asyncIterator || "@@asyncIterator";
+	  var toStringTagSymbol = $Symbol.toStringTag || "@@toStringTag";
+	  var runtime = global.regeneratorRuntime;
+	  if (runtime) {
+	    {
+	      // If regeneratorRuntime is defined globally and we're in a module,
+	      // make the exports object identical to regeneratorRuntime.
+	      module.exports = runtime;
+	    }
+	    // Don't bother evaluating the rest of this file if the runtime was
+	    // already defined globally.
+	    return;
+	  }
+
+	  // Define the runtime globally (as expected by generated code) as either
+	  // module.exports (if we're in a module) or a new, empty object.
+	  runtime = global.regeneratorRuntime = module.exports;
+
+	  function wrap(innerFn, outerFn, self, tryLocsList) {
+	    // If outerFn provided and outerFn.prototype is a Generator, then outerFn.prototype instanceof Generator.
+	    var protoGenerator = outerFn && outerFn.prototype instanceof Generator ? outerFn : Generator;
+	    var generator = Object.create(protoGenerator.prototype);
+	    var context = new Context(tryLocsList || []);
+
+	    // The ._invoke method unifies the implementations of the .next,
+	    // .throw, and .return methods.
+	    generator._invoke = makeInvokeMethod(innerFn, self, context);
+
+	    return generator;
+	  }
+	  runtime.wrap = wrap;
+
+	  // Try/catch helper to minimize deoptimizations. Returns a completion
+	  // record like context.tryEntries[i].completion. This interface could
+	  // have been (and was previously) designed to take a closure to be
+	  // invoked without arguments, but in all the cases we care about we
+	  // already have an existing method we want to call, so there's no need
+	  // to create a new function object. We can even get away with assuming
+	  // the method takes exactly one argument, since that happens to be true
+	  // in every case, so we don't have to touch the arguments object. The
+	  // only additional allocation required is the completion record, which
+	  // has a stable shape and so hopefully should be cheap to allocate.
+	  function tryCatch(fn, obj, arg) {
+	    try {
+	      return { type: "normal", arg: fn.call(obj, arg) };
+	    } catch (err) {
+	      return { type: "throw", arg: err };
+	    }
+	  }
+
+	  var GenStateSuspendedStart = "suspendedStart";
+	  var GenStateSuspendedYield = "suspendedYield";
+	  var GenStateExecuting = "executing";
+	  var GenStateCompleted = "completed";
+
+	  // Returning this object from the innerFn has the same effect as
+	  // breaking out of the dispatch switch statement.
+	  var ContinueSentinel = {};
+
+	  // Dummy constructor functions that we use as the .constructor and
+	  // .constructor.prototype properties for functions that return Generator
+	  // objects. For full spec compliance, you may wish to configure your
+	  // minifier not to mangle the names of these two functions.
+	  function Generator() {}
+	  function GeneratorFunction() {}
+	  function GeneratorFunctionPrototype() {}
+
+	  // This is a polyfill for %IteratorPrototype% for environments that
+	  // don't natively support it.
+	  var IteratorPrototype = {};
+	  IteratorPrototype[iteratorSymbol] = function () {
+	    return this;
+	  };
+
+	  var getProto = Object.getPrototypeOf;
+	  var NativeIteratorPrototype = getProto && getProto(getProto(values([])));
+	  if (NativeIteratorPrototype &&
+	      NativeIteratorPrototype !== Op &&
+	      hasOwn.call(NativeIteratorPrototype, iteratorSymbol)) {
+	    // This environment has a native %IteratorPrototype%; use it instead
+	    // of the polyfill.
+	    IteratorPrototype = NativeIteratorPrototype;
+	  }
+
+	  var Gp = GeneratorFunctionPrototype.prototype =
+	    Generator.prototype = Object.create(IteratorPrototype);
+	  GeneratorFunction.prototype = Gp.constructor = GeneratorFunctionPrototype;
+	  GeneratorFunctionPrototype.constructor = GeneratorFunction;
+	  GeneratorFunctionPrototype[toStringTagSymbol] =
+	    GeneratorFunction.displayName = "GeneratorFunction";
+
+	  // Helper for defining the .next, .throw, and .return methods of the
+	  // Iterator interface in terms of a single ._invoke method.
+	  function defineIteratorMethods(prototype) {
+	    ["next", "throw", "return"].forEach(function(method) {
+	      prototype[method] = function(arg) {
+	        return this._invoke(method, arg);
+	      };
+	    });
+	  }
+
+	  runtime.isGeneratorFunction = function(genFun) {
+	    var ctor = typeof genFun === "function" && genFun.constructor;
+	    return ctor
+	      ? ctor === GeneratorFunction ||
+	        // For the native GeneratorFunction constructor, the best we can
+	        // do is to check its .name property.
+	        (ctor.displayName || ctor.name) === "GeneratorFunction"
+	      : false;
+	  };
+
+	  runtime.mark = function(genFun) {
+	    if (Object.setPrototypeOf) {
+	      Object.setPrototypeOf(genFun, GeneratorFunctionPrototype);
+	    } else {
+	      genFun.__proto__ = GeneratorFunctionPrototype;
+	      if (!(toStringTagSymbol in genFun)) {
+	        genFun[toStringTagSymbol] = "GeneratorFunction";
+	      }
+	    }
+	    genFun.prototype = Object.create(Gp);
+	    return genFun;
+	  };
+
+	  // Within the body of any async function, `await x` is transformed to
+	  // `yield regeneratorRuntime.awrap(x)`, so that the runtime can test
+	  // `hasOwn.call(value, "__await")` to determine if the yielded value is
+	  // meant to be awaited.
+	  runtime.awrap = function(arg) {
+	    return { __await: arg };
+	  };
+
+	  function AsyncIterator(generator) {
+	    function invoke(method, arg, resolve, reject) {
+	      var record = tryCatch(generator[method], generator, arg);
+	      if (record.type === "throw") {
+	        reject(record.arg);
+	      } else {
+	        var result = record.arg;
+	        var value = result.value;
+	        if (value &&
+	            typeof value === "object" &&
+	            hasOwn.call(value, "__await")) {
+	          return Promise.resolve(value.__await).then(function(value) {
+	            invoke("next", value, resolve, reject);
+	          }, function(err) {
+	            invoke("throw", err, resolve, reject);
+	          });
+	        }
+
+	        return Promise.resolve(value).then(function(unwrapped) {
+	          // When a yielded Promise is resolved, its final value becomes
+	          // the .value of the Promise<{value,done}> result for the
+	          // current iteration. If the Promise is rejected, however, the
+	          // result for this iteration will be rejected with the same
+	          // reason. Note that rejections of yielded Promises are not
+	          // thrown back into the generator function, as is the case
+	          // when an awaited Promise is rejected. This difference in
+	          // behavior between yield and await is important, because it
+	          // allows the consumer to decide what to do with the yielded
+	          // rejection (swallow it and continue, manually .throw it back
+	          // into the generator, abandon iteration, whatever). With
+	          // await, by contrast, there is no opportunity to examine the
+	          // rejection reason outside the generator function, so the
+	          // only option is to throw it from the await expression, and
+	          // let the generator function handle the exception.
+	          result.value = unwrapped;
+	          resolve(result);
+	        }, reject);
+	      }
+	    }
+
+	    var previousPromise;
+
+	    function enqueue(method, arg) {
+	      function callInvokeWithMethodAndArg() {
+	        return new Promise(function(resolve, reject) {
+	          invoke(method, arg, resolve, reject);
+	        });
+	      }
+
+	      return previousPromise =
+	        // If enqueue has been called before, then we want to wait until
+	        // all previous Promises have been resolved before calling invoke,
+	        // so that results are always delivered in the correct order. If
+	        // enqueue has not been called before, then it is important to
+	        // call invoke immediately, without waiting on a callback to fire,
+	        // so that the async generator function has the opportunity to do
+	        // any necessary setup in a predictable way. This predictability
+	        // is why the Promise constructor synchronously invokes its
+	        // executor callback, and why async functions synchronously
+	        // execute code before the first await. Since we implement simple
+	        // async functions in terms of async generators, it is especially
+	        // important to get this right, even though it requires care.
+	        previousPromise ? previousPromise.then(
+	          callInvokeWithMethodAndArg,
+	          // Avoid propagating failures to Promises returned by later
+	          // invocations of the iterator.
+	          callInvokeWithMethodAndArg
+	        ) : callInvokeWithMethodAndArg();
+	    }
+
+	    // Define the unified helper method that is used to implement .next,
+	    // .throw, and .return (see defineIteratorMethods).
+	    this._invoke = enqueue;
+	  }
+
+	  defineIteratorMethods(AsyncIterator.prototype);
+	  AsyncIterator.prototype[asyncIteratorSymbol] = function () {
+	    return this;
+	  };
+	  runtime.AsyncIterator = AsyncIterator;
+
+	  // Note that simple async functions are implemented on top of
+	  // AsyncIterator objects; they just return a Promise for the value of
+	  // the final result produced by the iterator.
+	  runtime.async = function(innerFn, outerFn, self, tryLocsList) {
+	    var iter = new AsyncIterator(
+	      wrap(innerFn, outerFn, self, tryLocsList)
+	    );
+
+	    return runtime.isGeneratorFunction(outerFn)
+	      ? iter // If outerFn is a generator, return the full iterator.
+	      : iter.next().then(function(result) {
+	          return result.done ? result.value : iter.next();
+	        });
+	  };
+
+	  function makeInvokeMethod(innerFn, self, context) {
+	    var state = GenStateSuspendedStart;
+
+	    return function invoke(method, arg) {
+	      if (state === GenStateExecuting) {
+	        throw new Error("Generator is already running");
+	      }
+
+	      if (state === GenStateCompleted) {
+	        if (method === "throw") {
+	          throw arg;
+	        }
+
+	        // Be forgiving, per 25.3.3.3.3 of the spec:
+	        // https://people.mozilla.org/~jorendorff/es6-draft.html#sec-generatorresume
+	        return doneResult();
+	      }
+
+	      context.method = method;
+	      context.arg = arg;
+
+	      while (true) {
+	        var delegate = context.delegate;
+	        if (delegate) {
+	          var delegateResult = maybeInvokeDelegate(delegate, context);
+	          if (delegateResult) {
+	            if (delegateResult === ContinueSentinel) continue;
+	            return delegateResult;
+	          }
+	        }
+
+	        if (context.method === "next") {
+	          // Setting context._sent for legacy support of Babel's
+	          // function.sent implementation.
+	          context.sent = context._sent = context.arg;
+
+	        } else if (context.method === "throw") {
+	          if (state === GenStateSuspendedStart) {
+	            state = GenStateCompleted;
+	            throw context.arg;
+	          }
+
+	          context.dispatchException(context.arg);
+
+	        } else if (context.method === "return") {
+	          context.abrupt("return", context.arg);
+	        }
+
+	        state = GenStateExecuting;
+
+	        var record = tryCatch(innerFn, self, context);
+	        if (record.type === "normal") {
+	          // If an exception is thrown from innerFn, we leave state ===
+	          // GenStateExecuting and loop back for another invocation.
+	          state = context.done
+	            ? GenStateCompleted
+	            : GenStateSuspendedYield;
+
+	          if (record.arg === ContinueSentinel) {
+	            continue;
+	          }
+
+	          return {
+	            value: record.arg,
+	            done: context.done
+	          };
+
+	        } else if (record.type === "throw") {
+	          state = GenStateCompleted;
+	          // Dispatch the exception by looping back around to the
+	          // context.dispatchException(context.arg) call above.
+	          context.method = "throw";
+	          context.arg = record.arg;
+	        }
+	      }
+	    };
+	  }
+
+	  // Call delegate.iterator[context.method](context.arg) and handle the
+	  // result, either by returning a { value, done } result from the
+	  // delegate iterator, or by modifying context.method and context.arg,
+	  // setting context.delegate to null, and returning the ContinueSentinel.
+	  function maybeInvokeDelegate(delegate, context) {
+	    var method = delegate.iterator[context.method];
+	    if (method === undefined) {
+	      // A .throw or .return when the delegate iterator has no .throw
+	      // method always terminates the yield* loop.
+	      context.delegate = null;
+
+	      if (context.method === "throw") {
+	        if (delegate.iterator.return) {
+	          // If the delegate iterator has a return method, give it a
+	          // chance to clean up.
+	          context.method = "return";
+	          context.arg = undefined;
+	          maybeInvokeDelegate(delegate, context);
+
+	          if (context.method === "throw") {
+	            // If maybeInvokeDelegate(context) changed context.method from
+	            // "return" to "throw", let that override the TypeError below.
+	            return ContinueSentinel;
+	          }
+	        }
+
+	        context.method = "throw";
+	        context.arg = new TypeError(
+	          "The iterator does not provide a 'throw' method");
+	      }
+
+	      return ContinueSentinel;
+	    }
+
+	    var record = tryCatch(method, delegate.iterator, context.arg);
+
+	    if (record.type === "throw") {
+	      context.method = "throw";
+	      context.arg = record.arg;
+	      context.delegate = null;
+	      return ContinueSentinel;
+	    }
+
+	    var info = record.arg;
+
+	    if (! info) {
+	      context.method = "throw";
+	      context.arg = new TypeError("iterator result is not an object");
+	      context.delegate = null;
+	      return ContinueSentinel;
+	    }
+
+	    if (info.done) {
+	      // Assign the result of the finished delegate to the temporary
+	      // variable specified by delegate.resultName (see delegateYield).
+	      context[delegate.resultName] = info.value;
+
+	      // Resume execution at the desired location (see delegateYield).
+	      context.next = delegate.nextLoc;
+
+	      // If context.method was "throw" but the delegate handled the
+	      // exception, let the outer generator proceed normally. If
+	      // context.method was "next", forget context.arg since it has been
+	      // "consumed" by the delegate iterator. If context.method was
+	      // "return", allow the original .return call to continue in the
+	      // outer generator.
+	      if (context.method !== "return") {
+	        context.method = "next";
+	        context.arg = undefined;
+	      }
+
+	    } else {
+	      // Re-yield the result returned by the delegate method.
+	      return info;
+	    }
+
+	    // The delegate iterator is finished, so forget it and continue with
+	    // the outer generator.
+	    context.delegate = null;
+	    return ContinueSentinel;
+	  }
+
+	  // Define Generator.prototype.{next,throw,return} in terms of the
+	  // unified ._invoke helper method.
+	  defineIteratorMethods(Gp);
+
+	  Gp[toStringTagSymbol] = "Generator";
+
+	  // A Generator should always return itself as the iterator object when the
+	  // @@iterator function is called on it. Some browsers' implementations of the
+	  // iterator prototype chain incorrectly implement this, causing the Generator
+	  // object to not be returned from this call. This ensures that doesn't happen.
+	  // See https://github.com/facebook/regenerator/issues/274 for more details.
+	  Gp[iteratorSymbol] = function() {
+	    return this;
+	  };
+
+	  Gp.toString = function() {
+	    return "[object Generator]";
+	  };
+
+	  function pushTryEntry(locs) {
+	    var entry = { tryLoc: locs[0] };
+
+	    if (1 in locs) {
+	      entry.catchLoc = locs[1];
+	    }
+
+	    if (2 in locs) {
+	      entry.finallyLoc = locs[2];
+	      entry.afterLoc = locs[3];
+	    }
+
+	    this.tryEntries.push(entry);
+	  }
+
+	  function resetTryEntry(entry) {
+	    var record = entry.completion || {};
+	    record.type = "normal";
+	    delete record.arg;
+	    entry.completion = record;
+	  }
+
+	  function Context(tryLocsList) {
+	    // The root entry object (effectively a try statement without a catch
+	    // or a finally block) gives us a place to store values thrown from
+	    // locations where there is no enclosing try statement.
+	    this.tryEntries = [{ tryLoc: "root" }];
+	    tryLocsList.forEach(pushTryEntry, this);
+	    this.reset(true);
+	  }
+
+	  runtime.keys = function(object) {
+	    var keys = [];
+	    for (var key in object) {
+	      keys.push(key);
+	    }
+	    keys.reverse();
+
+	    // Rather than returning an object with a next method, we keep
+	    // things simple and return the next function itself.
+	    return function next() {
+	      while (keys.length) {
+	        var key = keys.pop();
+	        if (key in object) {
+	          next.value = key;
+	          next.done = false;
+	          return next;
+	        }
+	      }
+
+	      // To avoid creating an additional object, we just hang the .value
+	      // and .done properties off the next function object itself. This
+	      // also ensures that the minifier will not anonymize the function.
+	      next.done = true;
+	      return next;
+	    };
+	  };
+
+	  function values(iterable) {
+	    if (iterable) {
+	      var iteratorMethod = iterable[iteratorSymbol];
+	      if (iteratorMethod) {
+	        return iteratorMethod.call(iterable);
+	      }
+
+	      if (typeof iterable.next === "function") {
+	        return iterable;
+	      }
+
+	      if (!isNaN(iterable.length)) {
+	        var i = -1, next = function next() {
+	          while (++i < iterable.length) {
+	            if (hasOwn.call(iterable, i)) {
+	              next.value = iterable[i];
+	              next.done = false;
+	              return next;
+	            }
+	          }
+
+	          next.value = undefined;
+	          next.done = true;
+
+	          return next;
+	        };
+
+	        return next.next = next;
+	      }
+	    }
+
+	    // Return an iterator with no values.
+	    return { next: doneResult };
+	  }
+	  runtime.values = values;
+
+	  function doneResult() {
+	    return { value: undefined, done: true };
+	  }
+
+	  Context.prototype = {
+	    constructor: Context,
+
+	    reset: function(skipTempReset) {
+	      this.prev = 0;
+	      this.next = 0;
+	      // Resetting context._sent for legacy support of Babel's
+	      // function.sent implementation.
+	      this.sent = this._sent = undefined;
+	      this.done = false;
+	      this.delegate = null;
+
+	      this.method = "next";
+	      this.arg = undefined;
+
+	      this.tryEntries.forEach(resetTryEntry);
+
+	      if (!skipTempReset) {
+	        for (var name in this) {
+	          // Not sure about the optimal order of these conditions:
+	          if (name.charAt(0) === "t" &&
+	              hasOwn.call(this, name) &&
+	              !isNaN(+name.slice(1))) {
+	            this[name] = undefined;
+	          }
+	        }
+	      }
+	    },
+
+	    stop: function() {
+	      this.done = true;
+
+	      var rootEntry = this.tryEntries[0];
+	      var rootRecord = rootEntry.completion;
+	      if (rootRecord.type === "throw") {
+	        throw rootRecord.arg;
+	      }
+
+	      return this.rval;
+	    },
+
+	    dispatchException: function(exception) {
+	      if (this.done) {
+	        throw exception;
+	      }
+
+	      var context = this;
+	      function handle(loc, caught) {
+	        record.type = "throw";
+	        record.arg = exception;
+	        context.next = loc;
+
+	        if (caught) {
+	          // If the dispatched exception was caught by a catch block,
+	          // then let that catch block handle the exception normally.
+	          context.method = "next";
+	          context.arg = undefined;
+	        }
+
+	        return !! caught;
+	      }
+
+	      for (var i = this.tryEntries.length - 1; i >= 0; --i) {
+	        var entry = this.tryEntries[i];
+	        var record = entry.completion;
+
+	        if (entry.tryLoc === "root") {
+	          // Exception thrown outside of any try block that could handle
+	          // it, so set the completion value of the entire function to
+	          // throw the exception.
+	          return handle("end");
+	        }
+
+	        if (entry.tryLoc <= this.prev) {
+	          var hasCatch = hasOwn.call(entry, "catchLoc");
+	          var hasFinally = hasOwn.call(entry, "finallyLoc");
+
+	          if (hasCatch && hasFinally) {
+	            if (this.prev < entry.catchLoc) {
+	              return handle(entry.catchLoc, true);
+	            } else if (this.prev < entry.finallyLoc) {
+	              return handle(entry.finallyLoc);
+	            }
+
+	          } else if (hasCatch) {
+	            if (this.prev < entry.catchLoc) {
+	              return handle(entry.catchLoc, true);
+	            }
+
+	          } else if (hasFinally) {
+	            if (this.prev < entry.finallyLoc) {
+	              return handle(entry.finallyLoc);
+	            }
+
+	          } else {
+	            throw new Error("try statement without catch or finally");
+	          }
+	        }
+	      }
+	    },
+
+	    abrupt: function(type, arg) {
+	      for (var i = this.tryEntries.length - 1; i >= 0; --i) {
+	        var entry = this.tryEntries[i];
+	        if (entry.tryLoc <= this.prev &&
+	            hasOwn.call(entry, "finallyLoc") &&
+	            this.prev < entry.finallyLoc) {
+	          var finallyEntry = entry;
+	          break;
+	        }
+	      }
+
+	      if (finallyEntry &&
+	          (type === "break" ||
+	           type === "continue") &&
+	          finallyEntry.tryLoc <= arg &&
+	          arg <= finallyEntry.finallyLoc) {
+	        // Ignore the finally entry if control is not jumping to a
+	        // location outside the try/catch block.
+	        finallyEntry = null;
+	      }
+
+	      var record = finallyEntry ? finallyEntry.completion : {};
+	      record.type = type;
+	      record.arg = arg;
+
+	      if (finallyEntry) {
+	        this.method = "next";
+	        this.next = finallyEntry.finallyLoc;
+	        return ContinueSentinel;
+	      }
+
+	      return this.complete(record);
+	    },
+
+	    complete: function(record, afterLoc) {
+	      if (record.type === "throw") {
+	        throw record.arg;
+	      }
+
+	      if (record.type === "break" ||
+	          record.type === "continue") {
+	        this.next = record.arg;
+	      } else if (record.type === "return") {
+	        this.rval = this.arg = record.arg;
+	        this.method = "return";
+	        this.next = "end";
+	      } else if (record.type === "normal" && afterLoc) {
+	        this.next = afterLoc;
+	      }
+
+	      return ContinueSentinel;
+	    },
+
+	    finish: function(finallyLoc) {
+	      for (var i = this.tryEntries.length - 1; i >= 0; --i) {
+	        var entry = this.tryEntries[i];
+	        if (entry.finallyLoc === finallyLoc) {
+	          this.complete(entry.completion, entry.afterLoc);
+	          resetTryEntry(entry);
+	          return ContinueSentinel;
+	        }
+	      }
+	    },
+
+	    "catch": function(tryLoc) {
+	      for (var i = this.tryEntries.length - 1; i >= 0; --i) {
+	        var entry = this.tryEntries[i];
+	        if (entry.tryLoc === tryLoc) {
+	          var record = entry.completion;
+	          if (record.type === "throw") {
+	            var thrown = record.arg;
+	            resetTryEntry(entry);
+	          }
+	          return thrown;
+	        }
+	      }
+
+	      // The context.catch method must only be called with a location
+	      // argument that corresponds to a known catch block.
+	      throw new Error("illegal catch attempt");
+	    },
+
+	    delegateYield: function(iterable, resultName, nextLoc) {
+	      this.delegate = {
+	        iterator: values(iterable),
+	        resultName: resultName,
+	        nextLoc: nextLoc
+	      };
+
+	      if (this.method === "next") {
+	        // Deliberately forget the last sent value so that we don't
+	        // accidentally pass it on to the delegate.
+	        this.arg = undefined;
+	      }
+
+	      return ContinueSentinel;
+	    }
+	  };
+	})(
+	  // In sloppy mode, unbound `this` refers to the global object, fallback to
+	  // Function constructor if we're in global strict mode. That is sadly a form
+	  // of indirect eval which violates Content Security Policy.
+	  (function() { return this })() || Function("return this")()
+	);
+	});
+
+	/**
+	 * Copyright (c) 2014-present, Facebook, Inc.
+	 *
+	 * This source code is licensed under the MIT license found in the
+	 * LICENSE file in the root directory of this source tree.
+	 */
+
+	// This method of obtaining a reference to the global object needs to be
+	// kept identical to the way it is obtained in runtime.js
+	var g = (function() { return this })() || Function("return this")();
+
+	// Use `getOwnPropertyNames` because not all browsers support calling
+	// `hasOwnProperty` on the global `self` object in a worker. See #183.
+	var hadRuntime = g.regeneratorRuntime &&
+	  Object.getOwnPropertyNames(g).indexOf("regeneratorRuntime") >= 0;
+
+	// Save the old regeneratorRuntime in case it needs to be restored later.
+	var oldRuntime = hadRuntime && g.regeneratorRuntime;
+
+	// Force reevalutation of runtime.js.
+	g.regeneratorRuntime = undefined;
+
+	var runtimeModule = runtime;
+
+	if (hadRuntime) {
+	  // Restore the original runtime.
+	  g.regeneratorRuntime = oldRuntime;
+	} else {
+	  // Remove the global property added by runtime.js.
+	  try {
+	    delete g.regeneratorRuntime;
+	  } catch(e) {
+	    g.regeneratorRuntime = undefined;
+	  }
+	}
+
+	var regenerator = runtimeModule;
+
+	// getting tag from 19.1.3.6 Object.prototype.toString()
+
+	var TAG$1 = _wks('toStringTag');
+	// ES3 wrong here
+	var ARG = _cof(function () { return arguments; }()) == 'Arguments';
+
+	// fallback for IE11 Script Access Denied error
+	var tryGet = function (it, key) {
+	  try {
+	    return it[key];
+	  } catch (e) { /* empty */ }
+	};
+
+	var _classof = function (it) {
+	  var O, T, B;
+	  return it === undefined ? 'Undefined' : it === null ? 'Null'
+	    // @@toStringTag case
+	    : typeof (T = tryGet(O = Object(it), TAG$1)) == 'string' ? T
+	    // builtinTag case
+	    : ARG ? _cof(O)
+	    // ES3 arguments fallback
+	    : (B = _cof(O)) == 'Object' && typeof O.callee == 'function' ? 'Arguments' : B;
+	};
+
+	var _anInstance = function (it, Constructor, name, forbiddenField) {
+	  if (!(it instanceof Constructor) || (forbiddenField !== undefined && forbiddenField in it)) {
+	    throw TypeError(name + ': incorrect invocation!');
+	  } return it;
+	};
+
+	// call something on iterator step with safe closing on error
+
+	var _iterCall = function (iterator, fn, value, entries) {
+	  try {
+	    return entries ? fn(_anObject(value)[0], value[1]) : fn(value);
+	  // 7.4.6 IteratorClose(iterator, completion)
+	  } catch (e) {
+	    var ret = iterator['return'];
+	    if (ret !== undefined) _anObject(ret.call(iterator));
+	    throw e;
+	  }
+	};
+
+	// check on default Array iterator
+
+	var ITERATOR$1 = _wks('iterator');
+	var ArrayProto = Array.prototype;
+
+	var _isArrayIter = function (it) {
+	  return it !== undefined && (_iterators.Array === it || ArrayProto[ITERATOR$1] === it);
+	};
+
+	var ITERATOR$2 = _wks('iterator');
+
+	var core_getIteratorMethod = _core.getIteratorMethod = function (it) {
+	  if (it != undefined) return it[ITERATOR$2]
+	    || it['@@iterator']
+	    || _iterators[_classof(it)];
+	};
+
+	var _forOf = createCommonjsModule(function (module) {
+	var BREAK = {};
+	var RETURN = {};
+	var exports = module.exports = function (iterable, entries, fn, that, ITERATOR) {
+	  var iterFn = ITERATOR ? function () { return iterable; } : core_getIteratorMethod(iterable);
+	  var f = _ctx(fn, that, entries ? 2 : 1);
+	  var index = 0;
+	  var length, step, iterator, result;
+	  if (typeof iterFn != 'function') throw TypeError(iterable + ' is not iterable!');
+	  // fast case for arrays with default iterator
+	  if (_isArrayIter(iterFn)) for (length = _toLength(iterable.length); length > index; index++) {
+	    result = entries ? f(_anObject(step = iterable[index])[0], step[1]) : f(iterable[index]);
+	    if (result === BREAK || result === RETURN) return result;
+	  } else for (iterator = iterFn.call(iterable); !(step = iterator.next()).done;) {
+	    result = _iterCall(iterator, f, step.value, entries);
+	    if (result === BREAK || result === RETURN) return result;
+	  }
+	};
+	exports.BREAK = BREAK;
+	exports.RETURN = RETURN;
+	});
+
+	// 7.3.20 SpeciesConstructor(O, defaultConstructor)
+
+
+	var SPECIES = _wks('species');
+	var _speciesConstructor = function (O, D) {
+	  var C = _anObject(O).constructor;
+	  var S;
+	  return C === undefined || (S = _anObject(C)[SPECIES]) == undefined ? D : _aFunction(S);
+	};
+
+	// fast apply, http://jsperf.lnkit.com/fast-apply/5
+	var _invoke = function (fn, args, that) {
+	  var un = that === undefined;
+	  switch (args.length) {
+	    case 0: return un ? fn()
+	                      : fn.call(that);
+	    case 1: return un ? fn(args[0])
+	                      : fn.call(that, args[0]);
+	    case 2: return un ? fn(args[0], args[1])
+	                      : fn.call(that, args[0], args[1]);
+	    case 3: return un ? fn(args[0], args[1], args[2])
+	                      : fn.call(that, args[0], args[1], args[2]);
+	    case 4: return un ? fn(args[0], args[1], args[2], args[3])
+	                      : fn.call(that, args[0], args[1], args[2], args[3]);
+	  } return fn.apply(that, args);
+	};
+
+	var process$1 = _global.process;
+	var setTask = _global.setImmediate;
+	var clearTask = _global.clearImmediate;
+	var MessageChannel = _global.MessageChannel;
+	var Dispatch = _global.Dispatch;
+	var counter = 0;
+	var queue = {};
+	var ONREADYSTATECHANGE = 'onreadystatechange';
+	var defer, channel, port;
+	var run = function () {
+	  var id = +this;
+	  // eslint-disable-next-line no-prototype-builtins
+	  if (queue.hasOwnProperty(id)) {
+	    var fn = queue[id];
+	    delete queue[id];
+	    fn();
+	  }
+	};
+	var listener = function (event) {
+	  run.call(event.data);
+	};
+	// Node.js 0.9+ & IE10+ has setImmediate, otherwise:
+	if (!setTask || !clearTask) {
+	  setTask = function setImmediate(fn) {
+	    var args = [];
+	    var i = 1;
+	    while (arguments.length > i) args.push(arguments[i++]);
+	    queue[++counter] = function () {
+	      // eslint-disable-next-line no-new-func
+	      _invoke(typeof fn == 'function' ? fn : Function(fn), args);
+	    };
+	    defer(counter);
+	    return counter;
+	  };
+	  clearTask = function clearImmediate(id) {
+	    delete queue[id];
+	  };
+	  // Node.js 0.8-
+	  if (_cof(process$1) == 'process') {
+	    defer = function (id) {
+	      process$1.nextTick(_ctx(run, id, 1));
+	    };
+	  // Sphere (JS game engine) Dispatch API
+	  } else if (Dispatch && Dispatch.now) {
+	    defer = function (id) {
+	      Dispatch.now(_ctx(run, id, 1));
+	    };
+	  // Browsers with MessageChannel, includes WebWorkers
+	  } else if (MessageChannel) {
+	    channel = new MessageChannel();
+	    port = channel.port2;
+	    channel.port1.onmessage = listener;
+	    defer = _ctx(port.postMessage, port, 1);
+	  // Browsers with postMessage, skip WebWorkers
+	  // IE8 has postMessage, but it's sync & typeof its postMessage is 'object'
+	  } else if (_global.addEventListener && typeof postMessage == 'function' && !_global.importScripts) {
+	    defer = function (id) {
+	      _global.postMessage(id + '', '*');
+	    };
+	    _global.addEventListener('message', listener, false);
+	  // IE8-
+	  } else if (ONREADYSTATECHANGE in _domCreate('script')) {
+	    defer = function (id) {
+	      _html.appendChild(_domCreate('script'))[ONREADYSTATECHANGE] = function () {
+	        _html.removeChild(this);
+	        run.call(id);
+	      };
+	    };
+	  // Rest old browsers
+	  } else {
+	    defer = function (id) {
+	      setTimeout(_ctx(run, id, 1), 0);
+	    };
+	  }
+	}
+	var _task = {
+	  set: setTask,
+	  clear: clearTask
+	};
+
+	var macrotask = _task.set;
+	var Observer = _global.MutationObserver || _global.WebKitMutationObserver;
+	var process$2 = _global.process;
+	var Promise$1 = _global.Promise;
+	var isNode = _cof(process$2) == 'process';
+
+	var _microtask = function () {
+	  var head, last, notify;
+
+	  var flush = function () {
+	    var parent, fn;
+	    if (isNode && (parent = process$2.domain)) parent.exit();
+	    while (head) {
+	      fn = head.fn;
+	      head = head.next;
+	      try {
+	        fn();
+	      } catch (e) {
+	        if (head) notify();
+	        else last = undefined;
+	        throw e;
+	      }
+	    } last = undefined;
+	    if (parent) parent.enter();
+	  };
+
+	  // Node.js
+	  if (isNode) {
+	    notify = function () {
+	      process$2.nextTick(flush);
+	    };
+	  // browsers with MutationObserver, except iOS Safari - https://github.com/zloirock/core-js/issues/339
+	  } else if (Observer && !(_global.navigator && _global.navigator.standalone)) {
+	    var toggle = true;
+	    var node = document.createTextNode('');
+	    new Observer(flush).observe(node, { characterData: true }); // eslint-disable-line no-new
+	    notify = function () {
+	      node.data = toggle = !toggle;
+	    };
+	  // environments with maybe non-completely correct, but existent Promise
+	  } else if (Promise$1 && Promise$1.resolve) {
+	    // Promise.resolve without an argument throws an error in LG WebOS 2
+	    var promise = Promise$1.resolve(undefined);
+	    notify = function () {
+	      promise.then(flush);
+	    };
+	  // for other environments - macrotask based on:
+	  // - setImmediate
+	  // - MessageChannel
+	  // - window.postMessag
+	  // - onreadystatechange
+	  // - setTimeout
+	  } else {
+	    notify = function () {
+	      // strange IE + webpack dev server bug - use .call(global)
+	      macrotask.call(_global, flush);
+	    };
+	  }
+
+	  return function (fn) {
+	    var task = { fn: fn, next: undefined };
+	    if (last) last.next = task;
+	    if (!head) {
+	      head = task;
+	      notify();
+	    } last = task;
+	  };
+	};
+
+	// 25.4.1.5 NewPromiseCapability(C)
+
+
+	function PromiseCapability(C) {
+	  var resolve, reject;
+	  this.promise = new C(function ($$resolve, $$reject) {
+	    if (resolve !== undefined || reject !== undefined) throw TypeError('Bad Promise constructor');
+	    resolve = $$resolve;
+	    reject = $$reject;
+	  });
+	  this.resolve = _aFunction(resolve);
+	  this.reject = _aFunction(reject);
+	}
+
+	var f$7 = function (C) {
+	  return new PromiseCapability(C);
+	};
+
+	var _newPromiseCapability = {
+		f: f$7
+	};
+
+	var _perform = function (exec) {
+	  try {
+	    return { e: false, v: exec() };
+	  } catch (e) {
+	    return { e: true, v: e };
+	  }
+	};
+
+	var navigator$1 = _global.navigator;
+
+	var _userAgent = navigator$1 && navigator$1.userAgent || '';
+
+	var _promiseResolve = function (C, x) {
+	  _anObject(C);
+	  if (_isObject(x) && x.constructor === C) return x;
+	  var promiseCapability = _newPromiseCapability.f(C);
+	  var resolve = promiseCapability.resolve;
+	  resolve(x);
+	  return promiseCapability.promise;
+	};
+
+	var _redefineAll = function (target, src, safe) {
+	  for (var key in src) {
+	    if (safe && target[key]) target[key] = src[key];
+	    else _hide(target, key, src[key]);
+	  } return target;
+	};
+
+	var SPECIES$1 = _wks('species');
+
+	var _setSpecies = function (KEY) {
+	  var C = typeof _core[KEY] == 'function' ? _core[KEY] : _global[KEY];
+	  if (_descriptors && C && !C[SPECIES$1]) _objectDp.f(C, SPECIES$1, {
+	    configurable: true,
+	    get: function () { return this; }
+	  });
+	};
+
+	var ITERATOR$3 = _wks('iterator');
+	var SAFE_CLOSING = false;
+
+	try {
+	  var riter = [7][ITERATOR$3]();
+	  riter['return'] = function () { SAFE_CLOSING = true; };
+	} catch (e) { /* empty */ }
+
+	var _iterDetect = function (exec, skipClosing) {
+	  if (!skipClosing && !SAFE_CLOSING) return false;
+	  var safe = false;
+	  try {
+	    var arr = [7];
+	    var iter = arr[ITERATOR$3]();
+	    iter.next = function () { return { done: safe = true }; };
+	    arr[ITERATOR$3] = function () { return iter; };
+	    exec(arr);
+	  } catch (e) { /* empty */ }
+	  return safe;
+	};
+
+	var task = _task.set;
+	var microtask = _microtask();
+
+
+
+
+	var PROMISE = 'Promise';
+	var TypeError$1 = _global.TypeError;
+	var process$3 = _global.process;
+	var versions = process$3 && process$3.versions;
+	var v8 = versions && versions.v8 || '';
+	var $Promise = _global[PROMISE];
+	var isNode$1 = _classof(process$3) == 'process';
+	var empty = function () { /* empty */ };
+	var Internal, newGenericPromiseCapability, OwnPromiseCapability, Wrapper;
+	var newPromiseCapability = newGenericPromiseCapability = _newPromiseCapability.f;
+
+	var USE_NATIVE$1 = !!function () {
+	  try {
+	    // correct subclassing with @@species support
+	    var promise = $Promise.resolve(1);
+	    var FakePromise = (promise.constructor = {})[_wks('species')] = function (exec) {
+	      exec(empty, empty);
+	    };
+	    // unhandled rejections tracking support, NodeJS Promise without it fails @@species test
+	    return (isNode$1 || typeof PromiseRejectionEvent == 'function')
+	      && promise.then(empty) instanceof FakePromise
+	      // v8 6.6 (Node 10 and Chrome 66) have a bug with resolving custom thenables
+	      // https://bugs.chromium.org/p/chromium/issues/detail?id=830565
+	      // we can't detect it synchronously, so just check versions
+	      && v8.indexOf('6.6') !== 0
+	      && _userAgent.indexOf('Chrome/66') === -1;
+	  } catch (e) { /* empty */ }
+	}();
+
+	// helpers
+	var isThenable = function (it) {
+	  var then;
+	  return _isObject(it) && typeof (then = it.then) == 'function' ? then : false;
+	};
+	var notify = function (promise, isReject) {
+	  if (promise._n) return;
+	  promise._n = true;
+	  var chain = promise._c;
+	  microtask(function () {
+	    var value = promise._v;
+	    var ok = promise._s == 1;
+	    var i = 0;
+	    var run = function (reaction) {
+	      var handler = ok ? reaction.ok : reaction.fail;
+	      var resolve = reaction.resolve;
+	      var reject = reaction.reject;
+	      var domain = reaction.domain;
+	      var result, then, exited;
+	      try {
+	        if (handler) {
+	          if (!ok) {
+	            if (promise._h == 2) onHandleUnhandled(promise);
+	            promise._h = 1;
+	          }
+	          if (handler === true) result = value;
+	          else {
+	            if (domain) domain.enter();
+	            result = handler(value); // may throw
+	            if (domain) {
+	              domain.exit();
+	              exited = true;
+	            }
+	          }
+	          if (result === reaction.promise) {
+	            reject(TypeError$1('Promise-chain cycle'));
+	          } else if (then = isThenable(result)) {
+	            then.call(result, resolve, reject);
+	          } else resolve(result);
+	        } else reject(value);
+	      } catch (e) {
+	        if (domain && !exited) domain.exit();
+	        reject(e);
+	      }
+	    };
+	    while (chain.length > i) run(chain[i++]); // variable length - can't use forEach
+	    promise._c = [];
+	    promise._n = false;
+	    if (isReject && !promise._h) onUnhandled(promise);
+	  });
+	};
+	var onUnhandled = function (promise) {
+	  task.call(_global, function () {
+	    var value = promise._v;
+	    var unhandled = isUnhandled(promise);
+	    var result, handler, console;
+	    if (unhandled) {
+	      result = _perform(function () {
+	        if (isNode$1) {
+	          process$3.emit('unhandledRejection', value, promise);
+	        } else if (handler = _global.onunhandledrejection) {
+	          handler({ promise: promise, reason: value });
+	        } else if ((console = _global.console) && console.error) {
+	          console.error('Unhandled promise rejection', value);
+	        }
+	      });
+	      // Browsers should not trigger `rejectionHandled` event if it was handled here, NodeJS - should
+	      promise._h = isNode$1 || isUnhandled(promise) ? 2 : 1;
+	    } promise._a = undefined;
+	    if (unhandled && result.e) throw result.v;
+	  });
+	};
+	var isUnhandled = function (promise) {
+	  return promise._h !== 1 && (promise._a || promise._c).length === 0;
+	};
+	var onHandleUnhandled = function (promise) {
+	  task.call(_global, function () {
+	    var handler;
+	    if (isNode$1) {
+	      process$3.emit('rejectionHandled', promise);
+	    } else if (handler = _global.onrejectionhandled) {
+	      handler({ promise: promise, reason: promise._v });
+	    }
+	  });
+	};
+	var $reject = function (value) {
+	  var promise = this;
+	  if (promise._d) return;
+	  promise._d = true;
+	  promise = promise._w || promise; // unwrap
+	  promise._v = value;
+	  promise._s = 2;
+	  if (!promise._a) promise._a = promise._c.slice();
+	  notify(promise, true);
+	};
+	var $resolve = function (value) {
+	  var promise = this;
+	  var then;
+	  if (promise._d) return;
+	  promise._d = true;
+	  promise = promise._w || promise; // unwrap
+	  try {
+	    if (promise === value) throw TypeError$1("Promise can't be resolved itself");
+	    if (then = isThenable(value)) {
+	      microtask(function () {
+	        var wrapper = { _w: promise, _d: false }; // wrap
+	        try {
+	          then.call(value, _ctx($resolve, wrapper, 1), _ctx($reject, wrapper, 1));
+	        } catch (e) {
+	          $reject.call(wrapper, e);
+	        }
+	      });
+	    } else {
+	      promise._v = value;
+	      promise._s = 1;
+	      notify(promise, false);
+	    }
+	  } catch (e) {
+	    $reject.call({ _w: promise, _d: false }, e); // wrap
+	  }
+	};
+
+	// constructor polyfill
+	if (!USE_NATIVE$1) {
+	  // 25.4.3.1 Promise(executor)
+	  $Promise = function Promise(executor) {
+	    _anInstance(this, $Promise, PROMISE, '_h');
+	    _aFunction(executor);
+	    Internal.call(this);
+	    try {
+	      executor(_ctx($resolve, this, 1), _ctx($reject, this, 1));
+	    } catch (err) {
+	      $reject.call(this, err);
+	    }
+	  };
+	  // eslint-disable-next-line no-unused-vars
+	  Internal = function Promise(executor) {
+	    this._c = [];             // <- awaiting reactions
+	    this._a = undefined;      // <- checked in isUnhandled reactions
+	    this._s = 0;              // <- state
+	    this._d = false;          // <- done
+	    this._v = undefined;      // <- value
+	    this._h = 0;              // <- rejection state, 0 - default, 1 - handled, 2 - unhandled
+	    this._n = false;          // <- notify
+	  };
+	  Internal.prototype = _redefineAll($Promise.prototype, {
+	    // 25.4.5.3 Promise.prototype.then(onFulfilled, onRejected)
+	    then: function then(onFulfilled, onRejected) {
+	      var reaction = newPromiseCapability(_speciesConstructor(this, $Promise));
+	      reaction.ok = typeof onFulfilled == 'function' ? onFulfilled : true;
+	      reaction.fail = typeof onRejected == 'function' && onRejected;
+	      reaction.domain = isNode$1 ? process$3.domain : undefined;
+	      this._c.push(reaction);
+	      if (this._a) this._a.push(reaction);
+	      if (this._s) notify(this, false);
+	      return reaction.promise;
+	    },
+	    // 25.4.5.1 Promise.prototype.catch(onRejected)
+	    'catch': function (onRejected) {
+	      return this.then(undefined, onRejected);
+	    }
+	  });
+	  OwnPromiseCapability = function () {
+	    var promise = new Internal();
+	    this.promise = promise;
+	    this.resolve = _ctx($resolve, promise, 1);
+	    this.reject = _ctx($reject, promise, 1);
+	  };
+	  _newPromiseCapability.f = newPromiseCapability = function (C) {
+	    return C === $Promise || C === Wrapper
+	      ? new OwnPromiseCapability(C)
+	      : newGenericPromiseCapability(C);
+	  };
+	}
+
+	_export(_export.G + _export.W + _export.F * !USE_NATIVE$1, { Promise: $Promise });
+	_setToStringTag($Promise, PROMISE);
+	_setSpecies(PROMISE);
+	Wrapper = _core[PROMISE];
+
+	// statics
+	_export(_export.S + _export.F * !USE_NATIVE$1, PROMISE, {
+	  // 25.4.4.5 Promise.reject(r)
+	  reject: function reject(r) {
+	    var capability = newPromiseCapability(this);
+	    var $$reject = capability.reject;
+	    $$reject(r);
+	    return capability.promise;
+	  }
+	});
+	_export(_export.S + _export.F * (_library), PROMISE, {
+	  // 25.4.4.6 Promise.resolve(x)
+	  resolve: function resolve(x) {
+	    return _promiseResolve(_library && this === Wrapper ? $Promise : this, x);
+	  }
+	});
+	_export(_export.S + _export.F * !(USE_NATIVE$1 && _iterDetect(function (iter) {
+	  $Promise.all(iter)['catch'](empty);
+	})), PROMISE, {
+	  // 25.4.4.1 Promise.all(iterable)
+	  all: function all(iterable) {
+	    var C = this;
+	    var capability = newPromiseCapability(C);
+	    var resolve = capability.resolve;
+	    var reject = capability.reject;
+	    var result = _perform(function () {
+	      var values = [];
+	      var index = 0;
+	      var remaining = 1;
+	      _forOf(iterable, false, function (promise) {
+	        var $index = index++;
+	        var alreadyCalled = false;
+	        values.push(undefined);
+	        remaining++;
+	        C.resolve(promise).then(function (value) {
+	          if (alreadyCalled) return;
+	          alreadyCalled = true;
+	          values[$index] = value;
+	          --remaining || resolve(values);
+	        }, reject);
+	      });
+	      --remaining || resolve(values);
+	    });
+	    if (result.e) reject(result.v);
+	    return capability.promise;
+	  },
+	  // 25.4.4.4 Promise.race(iterable)
+	  race: function race(iterable) {
+	    var C = this;
+	    var capability = newPromiseCapability(C);
+	    var reject = capability.reject;
+	    var result = _perform(function () {
+	      _forOf(iterable, false, function (promise) {
+	        C.resolve(promise).then(capability.resolve, reject);
+	      });
+	    });
+	    if (result.e) reject(result.v);
+	    return capability.promise;
+	  }
+	});
+
+	_export(_export.P + _export.R, 'Promise', { 'finally': function (onFinally) {
+	  var C = _speciesConstructor(this, _core.Promise || _global.Promise);
+	  var isFunction = typeof onFinally == 'function';
+	  return this.then(
+	    isFunction ? function (x) {
+	      return _promiseResolve(C, onFinally()).then(function () { return x; });
+	    } : onFinally,
+	    isFunction ? function (e) {
+	      return _promiseResolve(C, onFinally()).then(function () { throw e; });
+	    } : onFinally
+	  );
+	} });
+
+	// https://github.com/tc39/proposal-promise-try
+
+
+
+
+	_export(_export.S, 'Promise', { 'try': function (callbackfn) {
+	  var promiseCapability = _newPromiseCapability.f(this);
+	  var result = _perform(callbackfn);
+	  (result.e ? promiseCapability.reject : promiseCapability.resolve)(result.v);
+	  return promiseCapability.promise;
+	} });
+
+	var promise = _core.Promise;
+
+	var promise$1 = createCommonjsModule(function (module) {
+	module.exports = { "default": promise, __esModule: true };
+	});
+
+	var _Promise = unwrapExports(promise$1);
+
+	var asyncToGenerator = createCommonjsModule(function (module, exports) {
+
+	exports.__esModule = true;
+
+
+
+	var _promise2 = _interopRequireDefault(promise$1);
+
+	function _interopRequireDefault(obj) { return obj && obj.__esModule ? obj : { default: obj }; }
+
+	exports.default = function (fn) {
+	  return function () {
+	    var gen = fn.apply(this, arguments);
+	    return new _promise2.default(function (resolve, reject) {
+	      function step(key, arg) {
+	        try {
+	          var info = gen[key](arg);
+	          var value = info.value;
+	        } catch (error) {
+	          reject(error);
+	          return;
+	        }
+
+	        if (info.done) {
+	          resolve(value);
+	        } else {
+	          return _promise2.default.resolve(value).then(function (value) {
+	            step("next", value);
+	          }, function (err) {
+	            step("throw", err);
+	          });
+	        }
+	      }
+
+	      return step("next");
+	    });
+	  };
+	};
+	});
+
+	var _asyncToGenerator = unwrapExports(asyncToGenerator);
 
 	// most Object methods by ES6 should accept primitives
 
@@ -18622,6 +20089,7 @@
 
 
 
+
 	var $assign = Object.assign;
 
 	// should work with symbols and should have deterministic property order (V8 bug)
@@ -18646,7 +20114,10 @@
 	    var length = keys.length;
 	    var j = 0;
 	    var key;
-	    while (length > j) if (isEnum.call(S, key = keys[j++])) T[key] = S[key];
+	    while (length > j) {
+	      key = keys[j++];
+	      if (!_descriptors || isEnum.call(S, key)) T[key] = S[key];
+	    }
 	  } return T;
 	} : $assign;
 
@@ -18721,7 +20192,7 @@
 	  var type = typeof val;
 	  if (type === 'string' && val.length > 0) {
 	    return parse(val);
-	  } else if (type === 'number' && isNaN(val) === false) {
+	  } else if (type === 'number' && isFinite(val)) {
 	    return options.long ? fmtLong(val) : fmtShort(val);
 	  }
 	  throw new Error(
@@ -18743,7 +20214,7 @@
 	  if (str.length > 100) {
 	    return;
 	  }
-	  var match = /^((?:\d+)?\-?\d?\.?\d+) *(milliseconds?|msecs?|ms|seconds?|secs?|s|minutes?|mins?|m|hours?|hrs?|h|days?|d|weeks?|w|years?|yrs?|y)?$/i.exec(
+	  var match = /^(-?(?:\d+)?\.?\d+) *(milliseconds?|msecs?|ms|seconds?|secs?|s|minutes?|mins?|m|hours?|hrs?|h|days?|d|weeks?|w|years?|yrs?|y)?$/i.exec(
 	    str
 	  );
 	  if (!match) {
@@ -19313,6 +20784,7 @@
 
 	/**
 	   * 调试输出
+	   * @ignore
 	   * @param {String} log
 	   */
 	function debug(log) {
@@ -19322,1467 +20794,13 @@
 
 	/**
 	   * 错误输出
+	   * @ignore
 	   * @param {String} log
 	   */
 	function error(log) {
 	  var fullLog = '[ERROR] ' + log;
 	  logger[LogLevel.Error](fullLog);
 	}
-
-	var runtime = createCommonjsModule(function (module) {
-	/**
-	 * Copyright (c) 2014-present, Facebook, Inc.
-	 *
-	 * This source code is licensed under the MIT license found in the
-	 * LICENSE file in the root directory of this source tree.
-	 */
-
-	!(function(global) {
-
-	  var Op = Object.prototype;
-	  var hasOwn = Op.hasOwnProperty;
-	  var undefined; // More compressible than void 0.
-	  var $Symbol = typeof Symbol === "function" ? Symbol : {};
-	  var iteratorSymbol = $Symbol.iterator || "@@iterator";
-	  var asyncIteratorSymbol = $Symbol.asyncIterator || "@@asyncIterator";
-	  var toStringTagSymbol = $Symbol.toStringTag || "@@toStringTag";
-	  var runtime = global.regeneratorRuntime;
-	  if (runtime) {
-	    {
-	      // If regeneratorRuntime is defined globally and we're in a module,
-	      // make the exports object identical to regeneratorRuntime.
-	      module.exports = runtime;
-	    }
-	    // Don't bother evaluating the rest of this file if the runtime was
-	    // already defined globally.
-	    return;
-	  }
-
-	  // Define the runtime globally (as expected by generated code) as either
-	  // module.exports (if we're in a module) or a new, empty object.
-	  runtime = global.regeneratorRuntime = module.exports;
-
-	  function wrap(innerFn, outerFn, self, tryLocsList) {
-	    // If outerFn provided and outerFn.prototype is a Generator, then outerFn.prototype instanceof Generator.
-	    var protoGenerator = outerFn && outerFn.prototype instanceof Generator ? outerFn : Generator;
-	    var generator = Object.create(protoGenerator.prototype);
-	    var context = new Context(tryLocsList || []);
-
-	    // The ._invoke method unifies the implementations of the .next,
-	    // .throw, and .return methods.
-	    generator._invoke = makeInvokeMethod(innerFn, self, context);
-
-	    return generator;
-	  }
-	  runtime.wrap = wrap;
-
-	  // Try/catch helper to minimize deoptimizations. Returns a completion
-	  // record like context.tryEntries[i].completion. This interface could
-	  // have been (and was previously) designed to take a closure to be
-	  // invoked without arguments, but in all the cases we care about we
-	  // already have an existing method we want to call, so there's no need
-	  // to create a new function object. We can even get away with assuming
-	  // the method takes exactly one argument, since that happens to be true
-	  // in every case, so we don't have to touch the arguments object. The
-	  // only additional allocation required is the completion record, which
-	  // has a stable shape and so hopefully should be cheap to allocate.
-	  function tryCatch(fn, obj, arg) {
-	    try {
-	      return { type: "normal", arg: fn.call(obj, arg) };
-	    } catch (err) {
-	      return { type: "throw", arg: err };
-	    }
-	  }
-
-	  var GenStateSuspendedStart = "suspendedStart";
-	  var GenStateSuspendedYield = "suspendedYield";
-	  var GenStateExecuting = "executing";
-	  var GenStateCompleted = "completed";
-
-	  // Returning this object from the innerFn has the same effect as
-	  // breaking out of the dispatch switch statement.
-	  var ContinueSentinel = {};
-
-	  // Dummy constructor functions that we use as the .constructor and
-	  // .constructor.prototype properties for functions that return Generator
-	  // objects. For full spec compliance, you may wish to configure your
-	  // minifier not to mangle the names of these two functions.
-	  function Generator() {}
-	  function GeneratorFunction() {}
-	  function GeneratorFunctionPrototype() {}
-
-	  // This is a polyfill for %IteratorPrototype% for environments that
-	  // don't natively support it.
-	  var IteratorPrototype = {};
-	  IteratorPrototype[iteratorSymbol] = function () {
-	    return this;
-	  };
-
-	  var getProto = Object.getPrototypeOf;
-	  var NativeIteratorPrototype = getProto && getProto(getProto(values([])));
-	  if (NativeIteratorPrototype &&
-	      NativeIteratorPrototype !== Op &&
-	      hasOwn.call(NativeIteratorPrototype, iteratorSymbol)) {
-	    // This environment has a native %IteratorPrototype%; use it instead
-	    // of the polyfill.
-	    IteratorPrototype = NativeIteratorPrototype;
-	  }
-
-	  var Gp = GeneratorFunctionPrototype.prototype =
-	    Generator.prototype = Object.create(IteratorPrototype);
-	  GeneratorFunction.prototype = Gp.constructor = GeneratorFunctionPrototype;
-	  GeneratorFunctionPrototype.constructor = GeneratorFunction;
-	  GeneratorFunctionPrototype[toStringTagSymbol] =
-	    GeneratorFunction.displayName = "GeneratorFunction";
-
-	  // Helper for defining the .next, .throw, and .return methods of the
-	  // Iterator interface in terms of a single ._invoke method.
-	  function defineIteratorMethods(prototype) {
-	    ["next", "throw", "return"].forEach(function(method) {
-	      prototype[method] = function(arg) {
-	        return this._invoke(method, arg);
-	      };
-	    });
-	  }
-
-	  runtime.isGeneratorFunction = function(genFun) {
-	    var ctor = typeof genFun === "function" && genFun.constructor;
-	    return ctor
-	      ? ctor === GeneratorFunction ||
-	        // For the native GeneratorFunction constructor, the best we can
-	        // do is to check its .name property.
-	        (ctor.displayName || ctor.name) === "GeneratorFunction"
-	      : false;
-	  };
-
-	  runtime.mark = function(genFun) {
-	    if (Object.setPrototypeOf) {
-	      Object.setPrototypeOf(genFun, GeneratorFunctionPrototype);
-	    } else {
-	      genFun.__proto__ = GeneratorFunctionPrototype;
-	      if (!(toStringTagSymbol in genFun)) {
-	        genFun[toStringTagSymbol] = "GeneratorFunction";
-	      }
-	    }
-	    genFun.prototype = Object.create(Gp);
-	    return genFun;
-	  };
-
-	  // Within the body of any async function, `await x` is transformed to
-	  // `yield regeneratorRuntime.awrap(x)`, so that the runtime can test
-	  // `hasOwn.call(value, "__await")` to determine if the yielded value is
-	  // meant to be awaited.
-	  runtime.awrap = function(arg) {
-	    return { __await: arg };
-	  };
-
-	  function AsyncIterator(generator) {
-	    function invoke(method, arg, resolve, reject) {
-	      var record = tryCatch(generator[method], generator, arg);
-	      if (record.type === "throw") {
-	        reject(record.arg);
-	      } else {
-	        var result = record.arg;
-	        var value = result.value;
-	        if (value &&
-	            typeof value === "object" &&
-	            hasOwn.call(value, "__await")) {
-	          return Promise.resolve(value.__await).then(function(value) {
-	            invoke("next", value, resolve, reject);
-	          }, function(err) {
-	            invoke("throw", err, resolve, reject);
-	          });
-	        }
-
-	        return Promise.resolve(value).then(function(unwrapped) {
-	          // When a yielded Promise is resolved, its final value becomes
-	          // the .value of the Promise<{value,done}> result for the
-	          // current iteration. If the Promise is rejected, however, the
-	          // result for this iteration will be rejected with the same
-	          // reason. Note that rejections of yielded Promises are not
-	          // thrown back into the generator function, as is the case
-	          // when an awaited Promise is rejected. This difference in
-	          // behavior between yield and await is important, because it
-	          // allows the consumer to decide what to do with the yielded
-	          // rejection (swallow it and continue, manually .throw it back
-	          // into the generator, abandon iteration, whatever). With
-	          // await, by contrast, there is no opportunity to examine the
-	          // rejection reason outside the generator function, so the
-	          // only option is to throw it from the await expression, and
-	          // let the generator function handle the exception.
-	          result.value = unwrapped;
-	          resolve(result);
-	        }, reject);
-	      }
-	    }
-
-	    var previousPromise;
-
-	    function enqueue(method, arg) {
-	      function callInvokeWithMethodAndArg() {
-	        return new Promise(function(resolve, reject) {
-	          invoke(method, arg, resolve, reject);
-	        });
-	      }
-
-	      return previousPromise =
-	        // If enqueue has been called before, then we want to wait until
-	        // all previous Promises have been resolved before calling invoke,
-	        // so that results are always delivered in the correct order. If
-	        // enqueue has not been called before, then it is important to
-	        // call invoke immediately, without waiting on a callback to fire,
-	        // so that the async generator function has the opportunity to do
-	        // any necessary setup in a predictable way. This predictability
-	        // is why the Promise constructor synchronously invokes its
-	        // executor callback, and why async functions synchronously
-	        // execute code before the first await. Since we implement simple
-	        // async functions in terms of async generators, it is especially
-	        // important to get this right, even though it requires care.
-	        previousPromise ? previousPromise.then(
-	          callInvokeWithMethodAndArg,
-	          // Avoid propagating failures to Promises returned by later
-	          // invocations of the iterator.
-	          callInvokeWithMethodAndArg
-	        ) : callInvokeWithMethodAndArg();
-	    }
-
-	    // Define the unified helper method that is used to implement .next,
-	    // .throw, and .return (see defineIteratorMethods).
-	    this._invoke = enqueue;
-	  }
-
-	  defineIteratorMethods(AsyncIterator.prototype);
-	  AsyncIterator.prototype[asyncIteratorSymbol] = function () {
-	    return this;
-	  };
-	  runtime.AsyncIterator = AsyncIterator;
-
-	  // Note that simple async functions are implemented on top of
-	  // AsyncIterator objects; they just return a Promise for the value of
-	  // the final result produced by the iterator.
-	  runtime.async = function(innerFn, outerFn, self, tryLocsList) {
-	    var iter = new AsyncIterator(
-	      wrap(innerFn, outerFn, self, tryLocsList)
-	    );
-
-	    return runtime.isGeneratorFunction(outerFn)
-	      ? iter // If outerFn is a generator, return the full iterator.
-	      : iter.next().then(function(result) {
-	          return result.done ? result.value : iter.next();
-	        });
-	  };
-
-	  function makeInvokeMethod(innerFn, self, context) {
-	    var state = GenStateSuspendedStart;
-
-	    return function invoke(method, arg) {
-	      if (state === GenStateExecuting) {
-	        throw new Error("Generator is already running");
-	      }
-
-	      if (state === GenStateCompleted) {
-	        if (method === "throw") {
-	          throw arg;
-	        }
-
-	        // Be forgiving, per 25.3.3.3.3 of the spec:
-	        // https://people.mozilla.org/~jorendorff/es6-draft.html#sec-generatorresume
-	        return doneResult();
-	      }
-
-	      context.method = method;
-	      context.arg = arg;
-
-	      while (true) {
-	        var delegate = context.delegate;
-	        if (delegate) {
-	          var delegateResult = maybeInvokeDelegate(delegate, context);
-	          if (delegateResult) {
-	            if (delegateResult === ContinueSentinel) continue;
-	            return delegateResult;
-	          }
-	        }
-
-	        if (context.method === "next") {
-	          // Setting context._sent for legacy support of Babel's
-	          // function.sent implementation.
-	          context.sent = context._sent = context.arg;
-
-	        } else if (context.method === "throw") {
-	          if (state === GenStateSuspendedStart) {
-	            state = GenStateCompleted;
-	            throw context.arg;
-	          }
-
-	          context.dispatchException(context.arg);
-
-	        } else if (context.method === "return") {
-	          context.abrupt("return", context.arg);
-	        }
-
-	        state = GenStateExecuting;
-
-	        var record = tryCatch(innerFn, self, context);
-	        if (record.type === "normal") {
-	          // If an exception is thrown from innerFn, we leave state ===
-	          // GenStateExecuting and loop back for another invocation.
-	          state = context.done
-	            ? GenStateCompleted
-	            : GenStateSuspendedYield;
-
-	          if (record.arg === ContinueSentinel) {
-	            continue;
-	          }
-
-	          return {
-	            value: record.arg,
-	            done: context.done
-	          };
-
-	        } else if (record.type === "throw") {
-	          state = GenStateCompleted;
-	          // Dispatch the exception by looping back around to the
-	          // context.dispatchException(context.arg) call above.
-	          context.method = "throw";
-	          context.arg = record.arg;
-	        }
-	      }
-	    };
-	  }
-
-	  // Call delegate.iterator[context.method](context.arg) and handle the
-	  // result, either by returning a { value, done } result from the
-	  // delegate iterator, or by modifying context.method and context.arg,
-	  // setting context.delegate to null, and returning the ContinueSentinel.
-	  function maybeInvokeDelegate(delegate, context) {
-	    var method = delegate.iterator[context.method];
-	    if (method === undefined) {
-	      // A .throw or .return when the delegate iterator has no .throw
-	      // method always terminates the yield* loop.
-	      context.delegate = null;
-
-	      if (context.method === "throw") {
-	        if (delegate.iterator.return) {
-	          // If the delegate iterator has a return method, give it a
-	          // chance to clean up.
-	          context.method = "return";
-	          context.arg = undefined;
-	          maybeInvokeDelegate(delegate, context);
-
-	          if (context.method === "throw") {
-	            // If maybeInvokeDelegate(context) changed context.method from
-	            // "return" to "throw", let that override the TypeError below.
-	            return ContinueSentinel;
-	          }
-	        }
-
-	        context.method = "throw";
-	        context.arg = new TypeError(
-	          "The iterator does not provide a 'throw' method");
-	      }
-
-	      return ContinueSentinel;
-	    }
-
-	    var record = tryCatch(method, delegate.iterator, context.arg);
-
-	    if (record.type === "throw") {
-	      context.method = "throw";
-	      context.arg = record.arg;
-	      context.delegate = null;
-	      return ContinueSentinel;
-	    }
-
-	    var info = record.arg;
-
-	    if (! info) {
-	      context.method = "throw";
-	      context.arg = new TypeError("iterator result is not an object");
-	      context.delegate = null;
-	      return ContinueSentinel;
-	    }
-
-	    if (info.done) {
-	      // Assign the result of the finished delegate to the temporary
-	      // variable specified by delegate.resultName (see delegateYield).
-	      context[delegate.resultName] = info.value;
-
-	      // Resume execution at the desired location (see delegateYield).
-	      context.next = delegate.nextLoc;
-
-	      // If context.method was "throw" but the delegate handled the
-	      // exception, let the outer generator proceed normally. If
-	      // context.method was "next", forget context.arg since it has been
-	      // "consumed" by the delegate iterator. If context.method was
-	      // "return", allow the original .return call to continue in the
-	      // outer generator.
-	      if (context.method !== "return") {
-	        context.method = "next";
-	        context.arg = undefined;
-	      }
-
-	    } else {
-	      // Re-yield the result returned by the delegate method.
-	      return info;
-	    }
-
-	    // The delegate iterator is finished, so forget it and continue with
-	    // the outer generator.
-	    context.delegate = null;
-	    return ContinueSentinel;
-	  }
-
-	  // Define Generator.prototype.{next,throw,return} in terms of the
-	  // unified ._invoke helper method.
-	  defineIteratorMethods(Gp);
-
-	  Gp[toStringTagSymbol] = "Generator";
-
-	  // A Generator should always return itself as the iterator object when the
-	  // @@iterator function is called on it. Some browsers' implementations of the
-	  // iterator prototype chain incorrectly implement this, causing the Generator
-	  // object to not be returned from this call. This ensures that doesn't happen.
-	  // See https://github.com/facebook/regenerator/issues/274 for more details.
-	  Gp[iteratorSymbol] = function() {
-	    return this;
-	  };
-
-	  Gp.toString = function() {
-	    return "[object Generator]";
-	  };
-
-	  function pushTryEntry(locs) {
-	    var entry = { tryLoc: locs[0] };
-
-	    if (1 in locs) {
-	      entry.catchLoc = locs[1];
-	    }
-
-	    if (2 in locs) {
-	      entry.finallyLoc = locs[2];
-	      entry.afterLoc = locs[3];
-	    }
-
-	    this.tryEntries.push(entry);
-	  }
-
-	  function resetTryEntry(entry) {
-	    var record = entry.completion || {};
-	    record.type = "normal";
-	    delete record.arg;
-	    entry.completion = record;
-	  }
-
-	  function Context(tryLocsList) {
-	    // The root entry object (effectively a try statement without a catch
-	    // or a finally block) gives us a place to store values thrown from
-	    // locations where there is no enclosing try statement.
-	    this.tryEntries = [{ tryLoc: "root" }];
-	    tryLocsList.forEach(pushTryEntry, this);
-	    this.reset(true);
-	  }
-
-	  runtime.keys = function(object) {
-	    var keys = [];
-	    for (var key in object) {
-	      keys.push(key);
-	    }
-	    keys.reverse();
-
-	    // Rather than returning an object with a next method, we keep
-	    // things simple and return the next function itself.
-	    return function next() {
-	      while (keys.length) {
-	        var key = keys.pop();
-	        if (key in object) {
-	          next.value = key;
-	          next.done = false;
-	          return next;
-	        }
-	      }
-
-	      // To avoid creating an additional object, we just hang the .value
-	      // and .done properties off the next function object itself. This
-	      // also ensures that the minifier will not anonymize the function.
-	      next.done = true;
-	      return next;
-	    };
-	  };
-
-	  function values(iterable) {
-	    if (iterable) {
-	      var iteratorMethod = iterable[iteratorSymbol];
-	      if (iteratorMethod) {
-	        return iteratorMethod.call(iterable);
-	      }
-
-	      if (typeof iterable.next === "function") {
-	        return iterable;
-	      }
-
-	      if (!isNaN(iterable.length)) {
-	        var i = -1, next = function next() {
-	          while (++i < iterable.length) {
-	            if (hasOwn.call(iterable, i)) {
-	              next.value = iterable[i];
-	              next.done = false;
-	              return next;
-	            }
-	          }
-
-	          next.value = undefined;
-	          next.done = true;
-
-	          return next;
-	        };
-
-	        return next.next = next;
-	      }
-	    }
-
-	    // Return an iterator with no values.
-	    return { next: doneResult };
-	  }
-	  runtime.values = values;
-
-	  function doneResult() {
-	    return { value: undefined, done: true };
-	  }
-
-	  Context.prototype = {
-	    constructor: Context,
-
-	    reset: function(skipTempReset) {
-	      this.prev = 0;
-	      this.next = 0;
-	      // Resetting context._sent for legacy support of Babel's
-	      // function.sent implementation.
-	      this.sent = this._sent = undefined;
-	      this.done = false;
-	      this.delegate = null;
-
-	      this.method = "next";
-	      this.arg = undefined;
-
-	      this.tryEntries.forEach(resetTryEntry);
-
-	      if (!skipTempReset) {
-	        for (var name in this) {
-	          // Not sure about the optimal order of these conditions:
-	          if (name.charAt(0) === "t" &&
-	              hasOwn.call(this, name) &&
-	              !isNaN(+name.slice(1))) {
-	            this[name] = undefined;
-	          }
-	        }
-	      }
-	    },
-
-	    stop: function() {
-	      this.done = true;
-
-	      var rootEntry = this.tryEntries[0];
-	      var rootRecord = rootEntry.completion;
-	      if (rootRecord.type === "throw") {
-	        throw rootRecord.arg;
-	      }
-
-	      return this.rval;
-	    },
-
-	    dispatchException: function(exception) {
-	      if (this.done) {
-	        throw exception;
-	      }
-
-	      var context = this;
-	      function handle(loc, caught) {
-	        record.type = "throw";
-	        record.arg = exception;
-	        context.next = loc;
-
-	        if (caught) {
-	          // If the dispatched exception was caught by a catch block,
-	          // then let that catch block handle the exception normally.
-	          context.method = "next";
-	          context.arg = undefined;
-	        }
-
-	        return !! caught;
-	      }
-
-	      for (var i = this.tryEntries.length - 1; i >= 0; --i) {
-	        var entry = this.tryEntries[i];
-	        var record = entry.completion;
-
-	        if (entry.tryLoc === "root") {
-	          // Exception thrown outside of any try block that could handle
-	          // it, so set the completion value of the entire function to
-	          // throw the exception.
-	          return handle("end");
-	        }
-
-	        if (entry.tryLoc <= this.prev) {
-	          var hasCatch = hasOwn.call(entry, "catchLoc");
-	          var hasFinally = hasOwn.call(entry, "finallyLoc");
-
-	          if (hasCatch && hasFinally) {
-	            if (this.prev < entry.catchLoc) {
-	              return handle(entry.catchLoc, true);
-	            } else if (this.prev < entry.finallyLoc) {
-	              return handle(entry.finallyLoc);
-	            }
-
-	          } else if (hasCatch) {
-	            if (this.prev < entry.catchLoc) {
-	              return handle(entry.catchLoc, true);
-	            }
-
-	          } else if (hasFinally) {
-	            if (this.prev < entry.finallyLoc) {
-	              return handle(entry.finallyLoc);
-	            }
-
-	          } else {
-	            throw new Error("try statement without catch or finally");
-	          }
-	        }
-	      }
-	    },
-
-	    abrupt: function(type, arg) {
-	      for (var i = this.tryEntries.length - 1; i >= 0; --i) {
-	        var entry = this.tryEntries[i];
-	        if (entry.tryLoc <= this.prev &&
-	            hasOwn.call(entry, "finallyLoc") &&
-	            this.prev < entry.finallyLoc) {
-	          var finallyEntry = entry;
-	          break;
-	        }
-	      }
-
-	      if (finallyEntry &&
-	          (type === "break" ||
-	           type === "continue") &&
-	          finallyEntry.tryLoc <= arg &&
-	          arg <= finallyEntry.finallyLoc) {
-	        // Ignore the finally entry if control is not jumping to a
-	        // location outside the try/catch block.
-	        finallyEntry = null;
-	      }
-
-	      var record = finallyEntry ? finallyEntry.completion : {};
-	      record.type = type;
-	      record.arg = arg;
-
-	      if (finallyEntry) {
-	        this.method = "next";
-	        this.next = finallyEntry.finallyLoc;
-	        return ContinueSentinel;
-	      }
-
-	      return this.complete(record);
-	    },
-
-	    complete: function(record, afterLoc) {
-	      if (record.type === "throw") {
-	        throw record.arg;
-	      }
-
-	      if (record.type === "break" ||
-	          record.type === "continue") {
-	        this.next = record.arg;
-	      } else if (record.type === "return") {
-	        this.rval = this.arg = record.arg;
-	        this.method = "return";
-	        this.next = "end";
-	      } else if (record.type === "normal" && afterLoc) {
-	        this.next = afterLoc;
-	      }
-
-	      return ContinueSentinel;
-	    },
-
-	    finish: function(finallyLoc) {
-	      for (var i = this.tryEntries.length - 1; i >= 0; --i) {
-	        var entry = this.tryEntries[i];
-	        if (entry.finallyLoc === finallyLoc) {
-	          this.complete(entry.completion, entry.afterLoc);
-	          resetTryEntry(entry);
-	          return ContinueSentinel;
-	        }
-	      }
-	    },
-
-	    "catch": function(tryLoc) {
-	      for (var i = this.tryEntries.length - 1; i >= 0; --i) {
-	        var entry = this.tryEntries[i];
-	        if (entry.tryLoc === tryLoc) {
-	          var record = entry.completion;
-	          if (record.type === "throw") {
-	            var thrown = record.arg;
-	            resetTryEntry(entry);
-	          }
-	          return thrown;
-	        }
-	      }
-
-	      // The context.catch method must only be called with a location
-	      // argument that corresponds to a known catch block.
-	      throw new Error("illegal catch attempt");
-	    },
-
-	    delegateYield: function(iterable, resultName, nextLoc) {
-	      this.delegate = {
-	        iterator: values(iterable),
-	        resultName: resultName,
-	        nextLoc: nextLoc
-	      };
-
-	      if (this.method === "next") {
-	        // Deliberately forget the last sent value so that we don't
-	        // accidentally pass it on to the delegate.
-	        this.arg = undefined;
-	      }
-
-	      return ContinueSentinel;
-	    }
-	  };
-	})(
-	  // In sloppy mode, unbound `this` refers to the global object, fallback to
-	  // Function constructor if we're in global strict mode. That is sadly a form
-	  // of indirect eval which violates Content Security Policy.
-	  (function() { return this })() || Function("return this")()
-	);
-	});
-
-	/**
-	 * Copyright (c) 2014-present, Facebook, Inc.
-	 *
-	 * This source code is licensed under the MIT license found in the
-	 * LICENSE file in the root directory of this source tree.
-	 */
-
-	// This method of obtaining a reference to the global object needs to be
-	// kept identical to the way it is obtained in runtime.js
-	var g = (function() { return this })() || Function("return this")();
-
-	// Use `getOwnPropertyNames` because not all browsers support calling
-	// `hasOwnProperty` on the global `self` object in a worker. See #183.
-	var hadRuntime = g.regeneratorRuntime &&
-	  Object.getOwnPropertyNames(g).indexOf("regeneratorRuntime") >= 0;
-
-	// Save the old regeneratorRuntime in case it needs to be restored later.
-	var oldRuntime = hadRuntime && g.regeneratorRuntime;
-
-	// Force reevalutation of runtime.js.
-	g.regeneratorRuntime = undefined;
-
-	var runtimeModule = runtime;
-
-	if (hadRuntime) {
-	  // Restore the original runtime.
-	  g.regeneratorRuntime = oldRuntime;
-	} else {
-	  // Remove the global property added by runtime.js.
-	  try {
-	    delete g.regeneratorRuntime;
-	  } catch(e) {
-	    g.regeneratorRuntime = undefined;
-	  }
-	}
-
-	var regenerator = runtimeModule;
-
-	// getting tag from 19.1.3.6 Object.prototype.toString()
-
-	var TAG$1 = _wks('toStringTag');
-	// ES3 wrong here
-	var ARG = _cof(function () { return arguments; }()) == 'Arguments';
-
-	// fallback for IE11 Script Access Denied error
-	var tryGet = function (it, key) {
-	  try {
-	    return it[key];
-	  } catch (e) { /* empty */ }
-	};
-
-	var _classof = function (it) {
-	  var O, T, B;
-	  return it === undefined ? 'Undefined' : it === null ? 'Null'
-	    // @@toStringTag case
-	    : typeof (T = tryGet(O = Object(it), TAG$1)) == 'string' ? T
-	    // builtinTag case
-	    : ARG ? _cof(O)
-	    // ES3 arguments fallback
-	    : (B = _cof(O)) == 'Object' && typeof O.callee == 'function' ? 'Arguments' : B;
-	};
-
-	var _anInstance = function (it, Constructor, name, forbiddenField) {
-	  if (!(it instanceof Constructor) || (forbiddenField !== undefined && forbiddenField in it)) {
-	    throw TypeError(name + ': incorrect invocation!');
-	  } return it;
-	};
-
-	// call something on iterator step with safe closing on error
-
-	var _iterCall = function (iterator, fn, value, entries) {
-	  try {
-	    return entries ? fn(_anObject(value)[0], value[1]) : fn(value);
-	  // 7.4.6 IteratorClose(iterator, completion)
-	  } catch (e) {
-	    var ret = iterator['return'];
-	    if (ret !== undefined) _anObject(ret.call(iterator));
-	    throw e;
-	  }
-	};
-
-	// check on default Array iterator
-
-	var ITERATOR$1 = _wks('iterator');
-	var ArrayProto = Array.prototype;
-
-	var _isArrayIter = function (it) {
-	  return it !== undefined && (_iterators.Array === it || ArrayProto[ITERATOR$1] === it);
-	};
-
-	var ITERATOR$2 = _wks('iterator');
-
-	var core_getIteratorMethod = _core.getIteratorMethod = function (it) {
-	  if (it != undefined) return it[ITERATOR$2]
-	    || it['@@iterator']
-	    || _iterators[_classof(it)];
-	};
-
-	var _forOf = createCommonjsModule(function (module) {
-	var BREAK = {};
-	var RETURN = {};
-	var exports = module.exports = function (iterable, entries, fn, that, ITERATOR) {
-	  var iterFn = ITERATOR ? function () { return iterable; } : core_getIteratorMethod(iterable);
-	  var f = _ctx(fn, that, entries ? 2 : 1);
-	  var index = 0;
-	  var length, step, iterator, result;
-	  if (typeof iterFn != 'function') throw TypeError(iterable + ' is not iterable!');
-	  // fast case for arrays with default iterator
-	  if (_isArrayIter(iterFn)) for (length = _toLength(iterable.length); length > index; index++) {
-	    result = entries ? f(_anObject(step = iterable[index])[0], step[1]) : f(iterable[index]);
-	    if (result === BREAK || result === RETURN) return result;
-	  } else for (iterator = iterFn.call(iterable); !(step = iterator.next()).done;) {
-	    result = _iterCall(iterator, f, step.value, entries);
-	    if (result === BREAK || result === RETURN) return result;
-	  }
-	};
-	exports.BREAK = BREAK;
-	exports.RETURN = RETURN;
-	});
-
-	// 7.3.20 SpeciesConstructor(O, defaultConstructor)
-
-
-	var SPECIES = _wks('species');
-	var _speciesConstructor = function (O, D) {
-	  var C = _anObject(O).constructor;
-	  var S;
-	  return C === undefined || (S = _anObject(C)[SPECIES]) == undefined ? D : _aFunction(S);
-	};
-
-	// fast apply, http://jsperf.lnkit.com/fast-apply/5
-	var _invoke = function (fn, args, that) {
-	  var un = that === undefined;
-	  switch (args.length) {
-	    case 0: return un ? fn()
-	                      : fn.call(that);
-	    case 1: return un ? fn(args[0])
-	                      : fn.call(that, args[0]);
-	    case 2: return un ? fn(args[0], args[1])
-	                      : fn.call(that, args[0], args[1]);
-	    case 3: return un ? fn(args[0], args[1], args[2])
-	                      : fn.call(that, args[0], args[1], args[2]);
-	    case 4: return un ? fn(args[0], args[1], args[2], args[3])
-	                      : fn.call(that, args[0], args[1], args[2], args[3]);
-	  } return fn.apply(that, args);
-	};
-
-	var process$1 = _global.process;
-	var setTask = _global.setImmediate;
-	var clearTask = _global.clearImmediate;
-	var MessageChannel = _global.MessageChannel;
-	var Dispatch = _global.Dispatch;
-	var counter = 0;
-	var queue = {};
-	var ONREADYSTATECHANGE = 'onreadystatechange';
-	var defer, channel, port;
-	var run = function () {
-	  var id = +this;
-	  // eslint-disable-next-line no-prototype-builtins
-	  if (queue.hasOwnProperty(id)) {
-	    var fn = queue[id];
-	    delete queue[id];
-	    fn();
-	  }
-	};
-	var listener = function (event) {
-	  run.call(event.data);
-	};
-	// Node.js 0.9+ & IE10+ has setImmediate, otherwise:
-	if (!setTask || !clearTask) {
-	  setTask = function setImmediate(fn) {
-	    var args = [];
-	    var i = 1;
-	    while (arguments.length > i) args.push(arguments[i++]);
-	    queue[++counter] = function () {
-	      // eslint-disable-next-line no-new-func
-	      _invoke(typeof fn == 'function' ? fn : Function(fn), args);
-	    };
-	    defer(counter);
-	    return counter;
-	  };
-	  clearTask = function clearImmediate(id) {
-	    delete queue[id];
-	  };
-	  // Node.js 0.8-
-	  if (_cof(process$1) == 'process') {
-	    defer = function (id) {
-	      process$1.nextTick(_ctx(run, id, 1));
-	    };
-	  // Sphere (JS game engine) Dispatch API
-	  } else if (Dispatch && Dispatch.now) {
-	    defer = function (id) {
-	      Dispatch.now(_ctx(run, id, 1));
-	    };
-	  // Browsers with MessageChannel, includes WebWorkers
-	  } else if (MessageChannel) {
-	    channel = new MessageChannel();
-	    port = channel.port2;
-	    channel.port1.onmessage = listener;
-	    defer = _ctx(port.postMessage, port, 1);
-	  // Browsers with postMessage, skip WebWorkers
-	  // IE8 has postMessage, but it's sync & typeof its postMessage is 'object'
-	  } else if (_global.addEventListener && typeof postMessage == 'function' && !_global.importScripts) {
-	    defer = function (id) {
-	      _global.postMessage(id + '', '*');
-	    };
-	    _global.addEventListener('message', listener, false);
-	  // IE8-
-	  } else if (ONREADYSTATECHANGE in _domCreate('script')) {
-	    defer = function (id) {
-	      _html.appendChild(_domCreate('script'))[ONREADYSTATECHANGE] = function () {
-	        _html.removeChild(this);
-	        run.call(id);
-	      };
-	    };
-	  // Rest old browsers
-	  } else {
-	    defer = function (id) {
-	      setTimeout(_ctx(run, id, 1), 0);
-	    };
-	  }
-	}
-	var _task = {
-	  set: setTask,
-	  clear: clearTask
-	};
-
-	var macrotask = _task.set;
-	var Observer = _global.MutationObserver || _global.WebKitMutationObserver;
-	var process$2 = _global.process;
-	var Promise$1 = _global.Promise;
-	var isNode = _cof(process$2) == 'process';
-
-	var _microtask = function () {
-	  var head, last, notify;
-
-	  var flush = function () {
-	    var parent, fn;
-	    if (isNode && (parent = process$2.domain)) parent.exit();
-	    while (head) {
-	      fn = head.fn;
-	      head = head.next;
-	      try {
-	        fn();
-	      } catch (e) {
-	        if (head) notify();
-	        else last = undefined;
-	        throw e;
-	      }
-	    } last = undefined;
-	    if (parent) parent.enter();
-	  };
-
-	  // Node.js
-	  if (isNode) {
-	    notify = function () {
-	      process$2.nextTick(flush);
-	    };
-	  // browsers with MutationObserver, except iOS Safari - https://github.com/zloirock/core-js/issues/339
-	  } else if (Observer && !(_global.navigator && _global.navigator.standalone)) {
-	    var toggle = true;
-	    var node = document.createTextNode('');
-	    new Observer(flush).observe(node, { characterData: true }); // eslint-disable-line no-new
-	    notify = function () {
-	      node.data = toggle = !toggle;
-	    };
-	  // environments with maybe non-completely correct, but existent Promise
-	  } else if (Promise$1 && Promise$1.resolve) {
-	    // Promise.resolve without an argument throws an error in LG WebOS 2
-	    var promise = Promise$1.resolve(undefined);
-	    notify = function () {
-	      promise.then(flush);
-	    };
-	  // for other environments - macrotask based on:
-	  // - setImmediate
-	  // - MessageChannel
-	  // - window.postMessag
-	  // - onreadystatechange
-	  // - setTimeout
-	  } else {
-	    notify = function () {
-	      // strange IE + webpack dev server bug - use .call(global)
-	      macrotask.call(_global, flush);
-	    };
-	  }
-
-	  return function (fn) {
-	    var task = { fn: fn, next: undefined };
-	    if (last) last.next = task;
-	    if (!head) {
-	      head = task;
-	      notify();
-	    } last = task;
-	  };
-	};
-
-	// 25.4.1.5 NewPromiseCapability(C)
-
-
-	function PromiseCapability(C) {
-	  var resolve, reject;
-	  this.promise = new C(function ($$resolve, $$reject) {
-	    if (resolve !== undefined || reject !== undefined) throw TypeError('Bad Promise constructor');
-	    resolve = $$resolve;
-	    reject = $$reject;
-	  });
-	  this.resolve = _aFunction(resolve);
-	  this.reject = _aFunction(reject);
-	}
-
-	var f$7 = function (C) {
-	  return new PromiseCapability(C);
-	};
-
-	var _newPromiseCapability = {
-		f: f$7
-	};
-
-	var _perform = function (exec) {
-	  try {
-	    return { e: false, v: exec() };
-	  } catch (e) {
-	    return { e: true, v: e };
-	  }
-	};
-
-	var navigator$1 = _global.navigator;
-
-	var _userAgent = navigator$1 && navigator$1.userAgent || '';
-
-	var _promiseResolve = function (C, x) {
-	  _anObject(C);
-	  if (_isObject(x) && x.constructor === C) return x;
-	  var promiseCapability = _newPromiseCapability.f(C);
-	  var resolve = promiseCapability.resolve;
-	  resolve(x);
-	  return promiseCapability.promise;
-	};
-
-	var _redefineAll = function (target, src, safe) {
-	  for (var key in src) {
-	    if (safe && target[key]) target[key] = src[key];
-	    else _hide(target, key, src[key]);
-	  } return target;
-	};
-
-	var SPECIES$1 = _wks('species');
-
-	var _setSpecies = function (KEY) {
-	  var C = typeof _core[KEY] == 'function' ? _core[KEY] : _global[KEY];
-	  if (_descriptors && C && !C[SPECIES$1]) _objectDp.f(C, SPECIES$1, {
-	    configurable: true,
-	    get: function () { return this; }
-	  });
-	};
-
-	var ITERATOR$3 = _wks('iterator');
-	var SAFE_CLOSING = false;
-
-	try {
-	  var riter = [7][ITERATOR$3]();
-	  riter['return'] = function () { SAFE_CLOSING = true; };
-	} catch (e) { /* empty */ }
-
-	var _iterDetect = function (exec, skipClosing) {
-	  if (!skipClosing && !SAFE_CLOSING) return false;
-	  var safe = false;
-	  try {
-	    var arr = [7];
-	    var iter = arr[ITERATOR$3]();
-	    iter.next = function () { return { done: safe = true }; };
-	    arr[ITERATOR$3] = function () { return iter; };
-	    exec(arr);
-	  } catch (e) { /* empty */ }
-	  return safe;
-	};
-
-	var task = _task.set;
-	var microtask = _microtask();
-
-
-
-
-	var PROMISE = 'Promise';
-	var TypeError$1 = _global.TypeError;
-	var process$3 = _global.process;
-	var versions = process$3 && process$3.versions;
-	var v8 = versions && versions.v8 || '';
-	var $Promise = _global[PROMISE];
-	var isNode$1 = _classof(process$3) == 'process';
-	var empty = function () { /* empty */ };
-	var Internal, newGenericPromiseCapability, OwnPromiseCapability, Wrapper;
-	var newPromiseCapability = newGenericPromiseCapability = _newPromiseCapability.f;
-
-	var USE_NATIVE$1 = !!function () {
-	  try {
-	    // correct subclassing with @@species support
-	    var promise = $Promise.resolve(1);
-	    var FakePromise = (promise.constructor = {})[_wks('species')] = function (exec) {
-	      exec(empty, empty);
-	    };
-	    // unhandled rejections tracking support, NodeJS Promise without it fails @@species test
-	    return (isNode$1 || typeof PromiseRejectionEvent == 'function')
-	      && promise.then(empty) instanceof FakePromise
-	      // v8 6.6 (Node 10 and Chrome 66) have a bug with resolving custom thenables
-	      // https://bugs.chromium.org/p/chromium/issues/detail?id=830565
-	      // we can't detect it synchronously, so just check versions
-	      && v8.indexOf('6.6') !== 0
-	      && _userAgent.indexOf('Chrome/66') === -1;
-	  } catch (e) { /* empty */ }
-	}();
-
-	// helpers
-	var isThenable = function (it) {
-	  var then;
-	  return _isObject(it) && typeof (then = it.then) == 'function' ? then : false;
-	};
-	var notify = function (promise, isReject) {
-	  if (promise._n) return;
-	  promise._n = true;
-	  var chain = promise._c;
-	  microtask(function () {
-	    var value = promise._v;
-	    var ok = promise._s == 1;
-	    var i = 0;
-	    var run = function (reaction) {
-	      var handler = ok ? reaction.ok : reaction.fail;
-	      var resolve = reaction.resolve;
-	      var reject = reaction.reject;
-	      var domain = reaction.domain;
-	      var result, then, exited;
-	      try {
-	        if (handler) {
-	          if (!ok) {
-	            if (promise._h == 2) onHandleUnhandled(promise);
-	            promise._h = 1;
-	          }
-	          if (handler === true) result = value;
-	          else {
-	            if (domain) domain.enter();
-	            result = handler(value); // may throw
-	            if (domain) {
-	              domain.exit();
-	              exited = true;
-	            }
-	          }
-	          if (result === reaction.promise) {
-	            reject(TypeError$1('Promise-chain cycle'));
-	          } else if (then = isThenable(result)) {
-	            then.call(result, resolve, reject);
-	          } else resolve(result);
-	        } else reject(value);
-	      } catch (e) {
-	        if (domain && !exited) domain.exit();
-	        reject(e);
-	      }
-	    };
-	    while (chain.length > i) run(chain[i++]); // variable length - can't use forEach
-	    promise._c = [];
-	    promise._n = false;
-	    if (isReject && !promise._h) onUnhandled(promise);
-	  });
-	};
-	var onUnhandled = function (promise) {
-	  task.call(_global, function () {
-	    var value = promise._v;
-	    var unhandled = isUnhandled(promise);
-	    var result, handler, console;
-	    if (unhandled) {
-	      result = _perform(function () {
-	        if (isNode$1) {
-	          process$3.emit('unhandledRejection', value, promise);
-	        } else if (handler = _global.onunhandledrejection) {
-	          handler({ promise: promise, reason: value });
-	        } else if ((console = _global.console) && console.error) {
-	          console.error('Unhandled promise rejection', value);
-	        }
-	      });
-	      // Browsers should not trigger `rejectionHandled` event if it was handled here, NodeJS - should
-	      promise._h = isNode$1 || isUnhandled(promise) ? 2 : 1;
-	    } promise._a = undefined;
-	    if (unhandled && result.e) throw result.v;
-	  });
-	};
-	var isUnhandled = function (promise) {
-	  return promise._h !== 1 && (promise._a || promise._c).length === 0;
-	};
-	var onHandleUnhandled = function (promise) {
-	  task.call(_global, function () {
-	    var handler;
-	    if (isNode$1) {
-	      process$3.emit('rejectionHandled', promise);
-	    } else if (handler = _global.onrejectionhandled) {
-	      handler({ promise: promise, reason: promise._v });
-	    }
-	  });
-	};
-	var $reject = function (value) {
-	  var promise = this;
-	  if (promise._d) return;
-	  promise._d = true;
-	  promise = promise._w || promise; // unwrap
-	  promise._v = value;
-	  promise._s = 2;
-	  if (!promise._a) promise._a = promise._c.slice();
-	  notify(promise, true);
-	};
-	var $resolve = function (value) {
-	  var promise = this;
-	  var then;
-	  if (promise._d) return;
-	  promise._d = true;
-	  promise = promise._w || promise; // unwrap
-	  try {
-	    if (promise === value) throw TypeError$1("Promise can't be resolved itself");
-	    if (then = isThenable(value)) {
-	      microtask(function () {
-	        var wrapper = { _w: promise, _d: false }; // wrap
-	        try {
-	          then.call(value, _ctx($resolve, wrapper, 1), _ctx($reject, wrapper, 1));
-	        } catch (e) {
-	          $reject.call(wrapper, e);
-	        }
-	      });
-	    } else {
-	      promise._v = value;
-	      promise._s = 1;
-	      notify(promise, false);
-	    }
-	  } catch (e) {
-	    $reject.call({ _w: promise, _d: false }, e); // wrap
-	  }
-	};
-
-	// constructor polyfill
-	if (!USE_NATIVE$1) {
-	  // 25.4.3.1 Promise(executor)
-	  $Promise = function Promise(executor) {
-	    _anInstance(this, $Promise, PROMISE, '_h');
-	    _aFunction(executor);
-	    Internal.call(this);
-	    try {
-	      executor(_ctx($resolve, this, 1), _ctx($reject, this, 1));
-	    } catch (err) {
-	      $reject.call(this, err);
-	    }
-	  };
-	  // eslint-disable-next-line no-unused-vars
-	  Internal = function Promise(executor) {
-	    this._c = [];             // <- awaiting reactions
-	    this._a = undefined;      // <- checked in isUnhandled reactions
-	    this._s = 0;              // <- state
-	    this._d = false;          // <- done
-	    this._v = undefined;      // <- value
-	    this._h = 0;              // <- rejection state, 0 - default, 1 - handled, 2 - unhandled
-	    this._n = false;          // <- notify
-	  };
-	  Internal.prototype = _redefineAll($Promise.prototype, {
-	    // 25.4.5.3 Promise.prototype.then(onFulfilled, onRejected)
-	    then: function then(onFulfilled, onRejected) {
-	      var reaction = newPromiseCapability(_speciesConstructor(this, $Promise));
-	      reaction.ok = typeof onFulfilled == 'function' ? onFulfilled : true;
-	      reaction.fail = typeof onRejected == 'function' && onRejected;
-	      reaction.domain = isNode$1 ? process$3.domain : undefined;
-	      this._c.push(reaction);
-	      if (this._a) this._a.push(reaction);
-	      if (this._s) notify(this, false);
-	      return reaction.promise;
-	    },
-	    // 25.4.5.1 Promise.prototype.catch(onRejected)
-	    'catch': function (onRejected) {
-	      return this.then(undefined, onRejected);
-	    }
-	  });
-	  OwnPromiseCapability = function () {
-	    var promise = new Internal();
-	    this.promise = promise;
-	    this.resolve = _ctx($resolve, promise, 1);
-	    this.reject = _ctx($reject, promise, 1);
-	  };
-	  _newPromiseCapability.f = newPromiseCapability = function (C) {
-	    return C === $Promise || C === Wrapper
-	      ? new OwnPromiseCapability(C)
-	      : newGenericPromiseCapability(C);
-	  };
-	}
-
-	_export(_export.G + _export.W + _export.F * !USE_NATIVE$1, { Promise: $Promise });
-	_setToStringTag($Promise, PROMISE);
-	_setSpecies(PROMISE);
-	Wrapper = _core[PROMISE];
-
-	// statics
-	_export(_export.S + _export.F * !USE_NATIVE$1, PROMISE, {
-	  // 25.4.4.5 Promise.reject(r)
-	  reject: function reject(r) {
-	    var capability = newPromiseCapability(this);
-	    var $$reject = capability.reject;
-	    $$reject(r);
-	    return capability.promise;
-	  }
-	});
-	_export(_export.S + _export.F * (_library), PROMISE, {
-	  // 25.4.4.6 Promise.resolve(x)
-	  resolve: function resolve(x) {
-	    return _promiseResolve(_library && this === Wrapper ? $Promise : this, x);
-	  }
-	});
-	_export(_export.S + _export.F * !(USE_NATIVE$1 && _iterDetect(function (iter) {
-	  $Promise.all(iter)['catch'](empty);
-	})), PROMISE, {
-	  // 25.4.4.1 Promise.all(iterable)
-	  all: function all(iterable) {
-	    var C = this;
-	    var capability = newPromiseCapability(C);
-	    var resolve = capability.resolve;
-	    var reject = capability.reject;
-	    var result = _perform(function () {
-	      var values = [];
-	      var index = 0;
-	      var remaining = 1;
-	      _forOf(iterable, false, function (promise) {
-	        var $index = index++;
-	        var alreadyCalled = false;
-	        values.push(undefined);
-	        remaining++;
-	        C.resolve(promise).then(function (value) {
-	          if (alreadyCalled) return;
-	          alreadyCalled = true;
-	          values[$index] = value;
-	          --remaining || resolve(values);
-	        }, reject);
-	      });
-	      --remaining || resolve(values);
-	    });
-	    if (result.e) reject(result.v);
-	    return capability.promise;
-	  },
-	  // 25.4.4.4 Promise.race(iterable)
-	  race: function race(iterable) {
-	    var C = this;
-	    var capability = newPromiseCapability(C);
-	    var reject = capability.reject;
-	    var result = _perform(function () {
-	      _forOf(iterable, false, function (promise) {
-	        C.resolve(promise).then(capability.resolve, reject);
-	      });
-	    });
-	    if (result.e) reject(result.v);
-	    return capability.promise;
-	  }
-	});
-
-	_export(_export.P + _export.R, 'Promise', { 'finally': function (onFinally) {
-	  var C = _speciesConstructor(this, _core.Promise || _global.Promise);
-	  var isFunction = typeof onFinally == 'function';
-	  return this.then(
-	    isFunction ? function (x) {
-	      return _promiseResolve(C, onFinally()).then(function () { return x; });
-	    } : onFinally,
-	    isFunction ? function (e) {
-	      return _promiseResolve(C, onFinally()).then(function () { throw e; });
-	    } : onFinally
-	  );
-	} });
-
-	// https://github.com/tc39/proposal-promise-try
-
-
-
-
-	_export(_export.S, 'Promise', { 'try': function (callbackfn) {
-	  var promiseCapability = _newPromiseCapability.f(this);
-	  var result = _perform(callbackfn);
-	  (result.e ? promiseCapability.reject : promiseCapability.resolve)(result.v);
-	  return promiseCapability.promise;
-	} });
-
-	var promise = _core.Promise;
-
-	var promise$1 = createCommonjsModule(function (module) {
-	module.exports = { "default": promise, __esModule: true };
-	});
-
-	var _Promise = unwrapExports(promise$1);
-
-	var asyncToGenerator = createCommonjsModule(function (module, exports) {
-
-	exports.__esModule = true;
-
-
-
-	var _promise2 = _interopRequireDefault(promise$1);
-
-	function _interopRequireDefault(obj) { return obj && obj.__esModule ? obj : { default: obj }; }
-
-	exports.default = function (fn) {
-	  return function () {
-	    var gen = fn.apply(this, arguments);
-	    return new _promise2.default(function (resolve, reject) {
-	      function step(key, arg) {
-	        try {
-	          var info = gen[key](arg);
-	          var value = info.value;
-	        } catch (error) {
-	          reject(error);
-	          return;
-	        }
-
-	        if (info.done) {
-	          resolve(value);
-	        } else {
-	          return _promise2.default.resolve(value).then(function (value) {
-	            step("next", value);
-	          }, function (err) {
-	            step("throw", err);
-	          });
-	        }
-	      }
-
-	      return step("next");
-	    });
-	  };
-	};
-	});
-
-	var _asyncToGenerator = unwrapExports(asyncToGenerator);
 
 	var machina = createCommonjsModule(function (module, exports) {
 	/*!
@@ -21635,6 +21653,13 @@
 	      break;
 	    }
 	  }
+
+	  // Remove event specific arrays for event types that no
+	  // one is subscribed for to avoid memory leak.
+	  if (callbacks.length === 0) {
+	    delete this._callbacks['$' + event];
+	  }
+
 	  return this;
 	};
 
@@ -21648,8 +21673,13 @@
 
 	Emitter.prototype.emit = function(event){
 	  this._callbacks = this._callbacks || {};
-	  var args = [].slice.call(arguments, 1)
+
+	  var args = new Array(arguments.length - 1)
 	    , callbacks = this._callbacks['$' + event];
+
+	  for (var i = 1; i < arguments.length; i++) {
+	    args[i - 1] = arguments[i];
+	  }
 
 	  if (callbacks) {
 	    callbacks = callbacks.slice(0);
@@ -23550,13 +23580,17 @@
 	});
 	var client_1 = client.Request;
 
-	var version = "0.18.0-alpha.3";
+	var version = "0.18.0-beta.5";
+	var protocolVersion = 0;
 
 	// SDK 版本号
 
 	var isWeapp =
 	// eslint-disable-next-line no-undef
 	(typeof wx === 'undefined' ? 'undefined' : _typeof(wx)) === 'object' && typeof wx.connectSocket === 'function';
+
+	// eslint-disable-next-line no-sequences
+	var tap = function tap(interceptor) {return function (value) {return interceptor(value), value;};};
 
 	var
 
@@ -23604,7 +23638,7 @@
 	    url) {var _this2 = this;
 	      return new _Promise(function (resolve, reject) {
 	        debug('fetch lobby server info from: ' + url);
-	        var query = { appId: _this2._appId, sdkVersion: version };
+	        var query = { appId: _this2._appId, sdkVersion: version, protocolVersion: protocolVersion };
 	        // 使用设置覆盖 SDK 判断的 feature
 	        if (_this2._feature) {
 	          query.feature = _this2._feature;
@@ -23645,6 +23679,7 @@
 
 	          }
 	        });
+	        debug('fetch server url: ' + _this2._httpReq.url);
 	      });
 	    } }, { key: 'abort', value: function abort()
 
@@ -23830,7 +23865,9 @@
 	  // 打开 WebSocket 错误
 	  OPEN_WEBSOCKET_ERROR: 10001,
 	  // 发送消息状态错误
-	  SEND_MESSAGE_STATE_ERROR: 10002 };
+	  SEND_MESSAGE_STATE_ERROR: 10002,
+	  // 状态错误
+	  STATE_ERROR: 10003 };
 
 	var MAX_NO_PONG_TIMES = 2;
 	var MAX_PLAYER_COUNT = 10;
@@ -23840,7 +23877,7 @@
 
 	function convertRoomOptions(roomOptions) {
 	  var options = {};
-	  if (!roomOptions.opened) options.open = roomOptions.opened;
+	  if (!roomOptions.open) options.open = roomOptions.open;
 	  if (!roomOptions.visible) options.visible = roomOptions.visible;
 	  if (roomOptions.emptyRoomTtl > 0)
 	  options.emptyRoomTtl = roomOptions.emptyRoomTtl;
@@ -23855,17 +23892,23 @@
 	  if (roomOptions.customRoomPropertyKeysForLobby)
 	  options.lobbyAttrKeys = roomOptions.customRoomPropertyKeysForLobby;
 	  if (roomOptions.flag) options.flag = roomOptions.flag;
+	  if (roomOptions.pluginName) {
+	    options.pluginName = roomOptions.pluginName;
+	  }
 	  return options;
 	}
 
-	/* eslint class-methods-use-this: ["error", { "exceptMethods": ["_getPingDuration", "_handleMessage", "_handleErrorMsg", "_handleUnknownMsg"] }] */var
+	/* eslint class-methods-use-this: ["error", { "exceptMethods": ["_getPingDuration", "_handleNotification", "_handleErrorMsg", "_handleUnknownMsg"] }] */var
 	Connection = function (_EventEmitter) {_inherits(Connection, _EventEmitter);
 	  function Connection() {_classCallCheck(this, Connection);var _this = _possibleConstructorReturn(this, (Connection.__proto__ || _Object$getPrototypeOf(Connection)).call(this));
 
 	    _this._requests = {};
 	    _this._msgId = 0;
 	    _this._pingTimer = null;
-	    _this._pongTimer = null;return _this;
+	    _this._pongTimer = null;
+	    // 消息处理及缓存
+	    _this._isMessageQueueRunning = false;
+	    _this._messageQueue = null;return _this;
 	  }_createClass(Connection, [{ key: 'connect', value: function connect(
 
 	    server, userId) {var _this2 = this;
@@ -23874,7 +23917,7 @@
 	        WebSocket = adapters.WebSocket;
 	        _this2._ws = new WebSocket(server);
 	        _this2._ws.onopen = function () {
-	          debug(_this2._userId + ' : ' + _this2._flag + ' connection opened');
+	          debug(_this2._userId + ' : ' + _this2._flag + ' connection open');
 	          _this2._connected();
 	          resolve();
 	        };
@@ -23890,6 +23933,9 @@
 	    } }, { key: '_connected', value: function _connected()
 
 	    {var _this3 = this;
+	      // 每次连接成功后将会得到最新快照，之前的缓存没有意义了
+	      this._isMessageQueueRunning = true;
+	      this._messageQueue = [];
 	      this._ws.onmessage = function (message) {
 	        _this3._stopPong();
 	        _this3._pongTimer = setTimeout(function () {
@@ -23898,23 +23944,11 @@
 	          }, _this3._getPingDuration());
 	        }, _this3._getPingDuration() * MAX_NO_PONG_TIMES);
 	        var msg = JSON.parse(message.data);
-	        debug(_this3._userId + ' : ' + _this3._flag + ' <- ' + msg.op + ' ' + message.data);var
-	        i = msg.i;
-	        if (!lodash.isNull(i) && _this3._requests[i]) {
-	          // 如果有对应 resolve，则返回
-	          var _requests$i = _this3._requests[i],resolve = _requests$i.resolve,reject = _requests$i.reject;
-	          if (msg.cmd === 'error') {
-	            _this3._handleErrorMsg(msg);var
-	            reasonCode = msg.reasonCode,detail = msg.detail;
-	            reject(new PlayError(reasonCode, detail));
-	          } else {
-	            resolve(msg);
-	          }
-	        } else if (lodash.isEmpty(msg)) {
-	          debug('pong');
-	        } else {
-	          // 通知类消息交由子类处理事件
+	        debug(_this3._userId + ' : ' + _this3._flag + ' <- ' + msg.op + ' ' + message.data);
+	        if (_this3._isMessageQueueRunning) {
 	          _this3._handleMessage(msg);
+	        } else {
+	          _this3._messageQueue.push(msg);
 	        }
 	      };
 	      this._ws.onclose = function () {
@@ -23922,43 +23956,53 @@
 	        _this3._stopPong();
 	        _this3.emit(DISCONNECT_EVENT);
 	      };
-	    } }, { key: 'send', value: function send(
+	    } }, { key: 'send', value: function () {var _ref = _asyncToGenerator( /*#__PURE__*/regenerator.mark(function _callee(
 
-	    msg) {var _this4 = this;var withIndex = arguments.length > 1 && arguments[1] !== undefined ? arguments[1] : true;
-	      var msgId = this._getMsgId();
-	      if (withIndex) {
-	        _Object$assign(msg, {
-	          i: msgId });
+	      msg) {var _this4 = this;var withIndex = arguments.length > 1 && arguments[1] !== undefined ? arguments[1] : true;var ignoreServerError = arguments.length > 2 && arguments[2] !== undefined ? arguments[2] : true;var msgId, msgData, WebSocket;return regenerator.wrap(function _callee$(_context) {while (1) {switch (_context.prev = _context.next) {case 0:
+	                msgId = this._getMsgId();
+	                if (withIndex) {
+	                  _Object$assign(msg, {
+	                    i: msgId });
 
-	      }
-	      // 输出日志
-	      var msgData = _JSON$stringify(msg);
-	      debug(this._userId + ' : ' + this._flag + ' -> ' + msg.op + ' ' + msgData);
-	      return new _Promise(function (resolve, reject) {var
-	        WebSocket = adapters.WebSocket;
-	        if (_this4._ws.readyState === WebSocket.OPEN) {
-	          _this4._requests[msgId] = {
-	            msg: msg,
-	            resolve: resolve,
-	            reject: reject };
-
-	          _this4._ws.send(msgData);
-	          // 处理心跳包
-	          _this4._stopPing();
-	          _this4._pingTimer = setTimeout(function () {
-	            var ping = {};
-	            _this4.send(ping, false);
-	          }, _this4._getPingDuration());
-	        } else {
-	          reject(
-	          new PlayError(
-	          PlayErrorCode.SEND_MESSAGE_STATE_ERROR, 'Websocket send message error state: ' +
-	          _this4._ws.readyState));
+	                }
+	                // 输出日志
+	                msgData = _JSON$stringify(msg);
+	                debug(this._userId + ' : ' + this._flag + ' -> ' + msg.op + ' ' + msgData);
+	                WebSocket = adapters.WebSocket;if (!(
+	                this._ws.readyState !== WebSocket.OPEN)) {_context.next = 7;break;}throw (
+	                  new PlayError(
+	                  PlayErrorCode.SEND_MESSAGE_STATE_ERROR, 'Websocket send message error state: ' +
+	                  this._ws.readyState));case 7:
 
 
-	        }
-	      });
-	    } }, { key: 'close', value: function close()
+	                this._ws.send(msgData);
+	                // 处理心跳包
+	                this._stopPing();
+	                this._pingTimer = setTimeout(function () {
+	                  var ping = {};
+	                  _this4.send(ping, false);
+	                }, this._getPingDuration());if (
+
+	                withIndex) {_context.next = 12;break;}return _context.abrupt('return',
+	                undefined);case 12:return _context.abrupt('return',
+
+	                new _Promise(function (resolve, reject) {
+	                  _this4._requests[msgId] = {
+	                    msg: msg,
+	                    resolve: resolve,
+	                    reject: reject };
+
+	                }).then(
+	                ignoreServerError ?
+	                undefined :
+	                tap(function (res) {
+	                  if (res.reasonCode) {var
+	                    reasonCode = res.reasonCode,detail = res.detail;
+	                    throw new PlayError(reasonCode, detail);
+	                  }
+	                })));case 13:case 'end':return _context.stop();}}}, _callee, this);}));function send(_x3) {return _ref.apply(this, arguments);}return send;}() }, { key: 'close', value: function close()
+
+
 
 	    {var _this5 = this;
 	      this._stopPing();
@@ -23980,6 +24024,10 @@
 	          resolve();
 	        }
 	      });
+	    } }, { key: '_simulateDisconnection', value: function _simulateDisconnection()
+
+	    {
+	      this._ws.close();
 	    } }, { key: '_getMsgId', value: function _getMsgId()
 
 	    {
@@ -24003,17 +24051,36 @@
 
 	    {
 	      throw new Error('must implement the method');
+	    } }, { key: '_handleMessage', value: function _handleMessage(
+
+	    msg) {var
+	      i = msg.i;
+	      if (!lodash.isNull(i) && this._requests[i]) {
+	        // 如果有对应 resolve，则返回
+	        var _requests$i = this._requests[i],resolve = _requests$i.resolve,reject = _requests$i.reject;
+	        if (msg.cmd === 'error') {
+	          this._handleErrorMsg(msg);var
+	          reasonCode = msg.reasonCode,detail = msg.detail;
+	          reject(new PlayError(reasonCode, detail));
+	        } else {
+	          resolve(msg);
+	        }
+	      } else if (lodash.isEmpty(msg)) {
+	        debug('pong');
+	      } else {
+	        // 通知类消息交由子类处理事件
+	        this._handleNotification(msg);
+	      }
 	    }
 
-	    /* eslint no-unused-vars: ["error", { "args": "none" }] */ }, { key: '_handleMessage', value: function _handleMessage(
+	    /* eslint no-unused-vars: ["error", { "args": "none" }] */ }, { key: '_handleNotification', value: function _handleNotification(
 	    msg) {
 	      throw new Error('must implement the method');
-	    } }, { key: '_handleErrorMsg', value: function () {var _ref = _asyncToGenerator( /*#__PURE__*/regenerator.mark(function _callee(
+	    } }, { key: '_handleErrorMsg', value: function _handleErrorMsg(
 
-	      msg) {return regenerator.wrap(function _callee$(_context) {while (1) {switch (_context.prev = _context.next) {case 0:
-	                error(_JSON$stringify(msg));_context.next = 3;return (
-	                  this.close());case 3:case 'end':return _context.stop();}}}, _callee, this);}));function _handleErrorMsg(_x2) {return _ref.apply(this, arguments);}return _handleErrorMsg;}() }, { key: '_handleErrorNotify', value: function _handleErrorNotify(
-
+	    msg) {
+	      error(_JSON$stringify(msg));
+	    } }, { key: '_handleErrorNotify', value: function _handleErrorNotify(
 
 	    msg) {
 	      this._handleErrorMsg(msg);var
@@ -24022,7 +24089,19 @@
 	    } }, { key: '_handleUnknownMsg', value: function _handleUnknownMsg(
 
 	    msg) {
-	      error('unknow msg: ' + _JSON$stringify(msg));
+	      error('unknown msg: ' + _JSON$stringify(msg));
+	    } }, { key: '_pauseMessageQueue', value: function _pauseMessageQueue()
+
+	    {
+	      this._isMessageQueueRunning = false;
+	    } }, { key: '_resumeMessageQueue', value: function _resumeMessageQueue()
+
+	    {
+	      this._isMessageQueueRunning = true;
+	      while (this._messageQueue.length > 0) {
+	        var msg = this._messageQueue.shift();
+	        this._handleMessage(msg);
+	      }
 	    } }]);return Connection;}(eventemitter3);
 
 	// 19.1.2.6 Object.getOwnPropertyDescriptor(O, P)
@@ -24099,14 +24178,14 @@
 	    this._emptyRoomTtl = lobbyRoomDTO.emptyRoomTtl;
 	    this._playerTtl = lobbyRoomDTO.playerTtl;
 	    this._playerCount = lobbyRoomDTO.playerCount;
-	    if (lobbyRoomDTO.attr) {
-	      this._customRoomProperties = lobbyRoomDTO.attr;
-	    }
+	    this._visible = lobbyRoomDTO.visible;
+	    this._open = lobbyRoomDTO.open;
+	    this._customRoomProperties = lobbyRoomDTO.attr;
 	  }
 
 	  /**
 	     * 房间名称
-	     * @type {string}
+	     * @type {String}
 	     * @readonly
 	     */_createClass(LobbyRoom, [{ key: "roomName", get: function get()
 	    {
@@ -24115,7 +24194,7 @@
 
 	    /**
 	       * 房间最大玩家数
-	       * @type {number}
+	       * @type {Number}
 	       * @readonly
 	       */ }, { key: "maxPlayerCount", get: function get()
 	    {
@@ -24124,7 +24203,7 @@
 
 	    /**
 	       * 邀请好友 ID 数组
-	       * @type {Array.<string>}
+	       * @type {Array.<String>}
 	       * @readonly
 	       */ }, { key: "expectedUserIds", get: function get()
 	    {
@@ -24133,7 +24212,7 @@
 
 	    /**
 	       * 房间置空后销毁时间（秒）
-	       * @type {number}
+	       * @type {Number}
 	       * @readonly
 	       */ }, { key: "emptyRoomTtl", get: function get()
 	    {
@@ -24142,7 +24221,7 @@
 
 	    /**
 	       * 玩家离线后踢出房间时间（秒）
-	       * @type {number}
+	       * @type {Number}
 	       * @readonly
 	       */ }, { key: "playerTtl", get: function get()
 	    {
@@ -24151,7 +24230,7 @@
 
 	    /**
 	       * 当前房间玩家数量
-	       * @type {number}
+	       * @type {Number}
 	       * @readonly
 	       */ }, { key: "playerCount", get: function get()
 	    {
@@ -24165,6 +24244,24 @@
 	       */ }, { key: "customRoomProperties", get: function get()
 	    {
 	      return this._customRoomProperties;
+	    }
+
+	    /**
+	       * 房间是否可见
+	       * @type {Boolean}
+	       * @readonly
+	       */ }, { key: "visible", get: function get()
+	    {
+	      return this._visible === true;
+	    }
+
+	    /**
+	       * 房间是否开启
+	       * @type {Boolean}
+	       * @readonly
+	       */ }, { key: "open", get: function get()
+	    {
+	      return this._open === true;
 	    } }]);return LobbyRoom;}();
 
 	var LOBBY_KEEPALIVE_DURATION = 120000;
@@ -24188,18 +24285,18 @@
 	                    appId: appId,
 	                    peerId: userId,
 	                    sdkVersion: version,
+	                    protocolVersion: protocolVersion,
 	                    gameVersion: gameVersion };_context.next = 4;return _get(LobbyConnection.prototype.__proto__ || _Object$getPrototypeOf(LobbyConnection.prototype), 'send', _this2).call(_this2,
 
-	                  msg);case 4:res = _context.sent;if (!
-	                  res.reasonCode) {_context.next = 12;break;}_context.next = 8;return (
-	                    _this2.close());case 8:
-	                  reasonCode = res.reasonCode, detail = res.detail;
-	                  reject(new PlayError(reasonCode, detail));_context.next = 13;break;case 12:
+	                  msg);case 4:res = _context.sent;
+	                  if (res.reasonCode) {
+	                    reasonCode = res.reasonCode, detail = res.detail;
+	                    reject(new PlayError(reasonCode, detail));
+	                  } else {
+	                    resolve();
+	                  }_context.next = 11;break;case 8:_context.prev = 8;_context.t0 = _context['catch'](0);
 
-	                  resolve();case 13:_context.next = 18;break;case 15:_context.prev = 15;_context.t0 = _context['catch'](0);
-
-
-	                  reject(_context.t0);case 18:case 'end':return _context.stop();}}}, _callee, _this2, [[0, 15]]);}));return function (_x, _x2) {return _ref.apply(this, arguments);};}());
+	                  reject(_context.t0);case 11:case 'end':return _context.stop();}}}, _callee, _this2, [[0, 8]]);}));return function (_x, _x2) {return _ref.apply(this, arguments);};}());
 
 
 	    } }, { key: 'joinLobby', value: function joinLobby()
@@ -24372,6 +24469,34 @@
 	                  reject(_context8.t0);case 11:case 'end':return _context8.stop();}}}, _callee8, _this9, [[0, 8]]);}));return function (_x15, _x16) {return _ref8.apply(this, arguments);};}());
 
 
+	    } }, { key: 'matchRandom', value: function matchRandom(
+
+	    piggybackPeerId, matchProperties, expectedUserIds) {var _this10 = this;
+	      return new _Promise(function () {var _ref9 = _asyncToGenerator( /*#__PURE__*/regenerator.mark(function _callee9(resolve, reject) {var msg, res, reasonCode, detail, lobbyRoom;return regenerator.wrap(function _callee9$(_context9) {while (1) {switch (_context9.prev = _context9.next) {case 0:_context9.prev = 0;
+
+	                  msg = {
+	                    cmd: 'conv',
+	                    op: 'match-random',
+	                    piggybackPeerId: piggybackPeerId };
+
+	                  if (matchProperties) {
+	                    msg.expectAttr = matchProperties;
+	                  }
+	                  if (expectedUserIds) {
+	                    msg.expectMembers = expectedUserIds;
+	                  }_context9.next = 6;return _get(LobbyConnection.prototype.__proto__ || _Object$getPrototypeOf(LobbyConnection.prototype), 'send', _this10).call(_this10,
+	                  msg);case 6:res = _context9.sent;
+	                  if (res.reasonCode) {
+	                    reasonCode = res.reasonCode, detail = res.detail;
+	                    reject(new PlayError(reasonCode, detail));
+	                  } else {
+	                    lobbyRoom = new LobbyRoom(res);
+	                    resolve(lobbyRoom);
+	                  }_context9.next = 13;break;case 10:_context9.prev = 10;_context9.t0 = _context9['catch'](0);
+
+	                  reject(_context9.t0);case 13:case 'end':return _context9.stop();}}}, _callee9, _this10, [[0, 10]]);}));return function (_x17, _x18) {return _ref9.apply(this, arguments);};}());
+
+
 	    } }, { key: '_getPingDuration', value: function _getPingDuration()
 
 	    {
@@ -24379,7 +24504,7 @@
 	    }
 
 	    // 处理被动通知消息
-	  }, { key: '_handleMessage', value: function _handleMessage(msg) {
+	  }, { key: '_handleNotification', value: function _handleNotification(msg) {
 	      switch (msg.cmd) {
 	        case 'lobby':
 	          switch (msg.op) {
@@ -24434,9 +24559,13 @@
 	    var i = 0;
 	    var result = [];
 	    var key;
-	    while (length > i) if (isEnum$1.call(O, key = keys[i++])) {
-	      result.push(isEntries ? [key, O[key]] : O[key]);
-	    } return result;
+	    while (length > i) {
+	      key = keys[i++];
+	      if (!_descriptors || isEnum$1.call(O, key)) {
+	        result.push(isEntries ? [key, O[key]] : O[key]);
+	      }
+	    }
+	    return result;
 	  };
 	};
 
@@ -24459,13 +24588,42 @@
 	var _Object$values = unwrapExports(values$1);
 
 	/**
-	                                                                                                                                                                                                   * 玩家类
-	                                                                                                                                                                                                   */var
+	                                                                                                                                                                                                                                                                                                                                      * 玩家类
+	                                                                                                                                                                                                                                                                                                                                      */var
 	Player = function () {
 	  function Player() {_classCallCheck(this, Player);
 	    this._userId = '';
 	    this._actorId = -1;
-	  }_createClass(Player, [{ key: 'isLocal',
+	  }_createClass(Player, [{ key: 'setCustomProperties',
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -24498,58 +24656,24 @@
 
 
 	    /**
-	                                            * 判断是不是当前客户端玩家
-	                                            * @return {Boolean}
-	                                            */value: function isLocal()
-	    {
-	      return (
-	        this._actorId !== -1 && this._play._player._actorId === this._actorId);
+	                                                        * 设置玩家的自定义属性
+	                                                        * @param {Object} properties 自定义属性
+	                                                        * @param {Object} [opts] 设置选项
+	                                                        * @param {Object} [opts.expectedValues] 期望属性，用于 CAS 检测
+	                                                        */value: function () {var _ref = _asyncToGenerator( /*#__PURE__*/regenerator.mark(function _callee(
+	      properties) {var _ref2 = arguments.length > 1 && arguments[1] !== undefined ? arguments[1] : {},_ref2$expectedValues = _ref2.expectedValues,expectedValues = _ref2$expectedValues === undefined ? null : _ref2$expectedValues;return regenerator.wrap(function _callee$(_context) {while (1) {switch (_context.prev = _context.next) {case 0:return _context.abrupt('return',
+	                this._play._setPlayerCustomProperties(
+	                this._actorId,
+	                properties,
+	                expectedValues));case 1:case 'end':return _context.stop();}}}, _callee, this);}));function setCustomProperties(_x2) {return _ref.apply(this, arguments);}return setCustomProperties;}()
 
-	    }
 
-	    /**
-	       * 判断是不是主机玩家
-	       * @return {Boolean}
-	       */ }, { key: 'isMaster', value: function isMaster()
-	    {
-	      return this._actorId !== -1 && this._play._room.masterId === this._actorId;
-	    }
 
 	    /**
-	       * 判断是不是活跃状态
-	       * @return {Boolean}
-	       */ }, { key: 'isActive', value: function isActive()
-	    {
-	      return this.active;
-	    }
-
-	    /**
-	       * 设置玩家的自定义属性
-	       * @param {Object} properties 自定义属性
-	       * @param {Object} [opts] 设置选项
-	       * @param {Object} [opts.expectedValues] 期望属性，用于 CAS 检测
-	       */ }, { key: 'setCustomProperties', value: function setCustomProperties(
-	    properties) {var _ref = arguments.length > 1 && arguments[1] !== undefined ? arguments[1] : {},_ref$expectedValues = _ref.expectedValues,expectedValues = _ref$expectedValues === undefined ? null : _ref$expectedValues;
-	      return this._play._setPlayerCustomProperties(
-	      this._actorId,
-	      properties,
-	      expectedValues);
-
-	    }
-
-	    /**
-	       * @deprecated
-	       * 获取自定义属性
-	       * @return {Object}
-	       */ }, { key: 'getCustomProperties', value: function getCustomProperties()
-	    {
-	      return this.properties;
-	    }
-
-	    /**
-	       * 获取自定义属性
-	       * @return {Object}
-	       */ }, { key: '_setActive',
+	                                                                                                                                                                                                         * 获取自定义属性
+	                                                                                                                                                                                                         * @type {Object}
+	                                                                                                                                                                                                         * @readonly
+	                                                                                                                                                                                                         */ }, { key: '_setActive',
 
 
 
@@ -24563,18 +24687,50 @@
 	      this.properties = _Object$assign(this.properties, changedProperties);
 	    } }, { key: 'userId', /**
 	                           * 玩家 ID
-	                           * @type {string}
+	                           * @type {String}
 	                           * @readonly
 	                           */get: function get() {return this._userId;} /**
 	                                                                         * 房间玩家 ID
-	                                                                         * @type {number}
+	                                                                         * @type {Number}
 	                                                                         * @readonly
-	                                                                         */ }, { key: 'actorId', get: function get() {return this._actorId;} }, { key: 'CustomProperties', get: function get() {return this.properties;} }], [{ key: '_newFromJSONObject', value: function _newFromJSONObject(playerJSONObject) {var player = new Player();player._userId = playerJSONObject.pid;player._actorId = playerJSONObject.actorId;if (playerJSONObject.attr) {player.properties = playerJSONObject.attr;} else {player.properties = {};}return player;} }]);return Player;}();
+	                                                                         */ }, { key: 'actorId', get: function get() {return this._actorId;} /**
+	                                                                                                                                              * 判断是不是当前客户端玩家
+	                                                                                                                                              * @type {Boolean}
+	                                                                                                                                              * @readonly
+	                                                                                                                                              */ }, { key: 'isLocal', get: function get() {return this._actorId !== -1 && this._play._player._actorId === this._actorId;} /**
+	                                                                                                                                                                                                                                                                           * 判断是不是主机玩家
+	                                                                                                                                                                                                                                                                           * @type {Boolean}
+	                                                                                                                                                                                                                                                                           * @readonly
+	                                                                                                                                                                                                                                                                           */ }, { key: 'isMaster', get: function get() {return this._actorId !== -1 && this._play._room.masterId === this._actorId;} /**
+	                                                                                                                                                                                                                                                                                                                                                                                                       * 判断是不是活跃状态
+	                                                                                                                                                                                                                                                                                                                                                                                                       * @type {Boolean}
+	                                                                                                                                                                                                                                                                                                                                                                                                       * @readonly
+	                                                                                                                                                                                                                                                                                                                                                                                                       */ }, { key: 'isActive', get: function get() {return this.active;} }, { key: 'customProperties', get: function get() {return this.properties;} }], [{ key: '_newFromJSONObject', value: function _newFromJSONObject(playerJSONObject) {var player = new Player();player._userId = playerJSONObject.pid;player._actorId = playerJSONObject.actorId;if (playerJSONObject.attr) {player.properties = playerJSONObject.attr;} else {player.properties = {};}return player;} }]);return Player;}();
 
 	/**
-	                                                                                                                                                                                                                                                                                                  * 房间类
-	                                                                                                                                                                                                                                                                                                  */var
+	 * 接收组枚举
+	 * @readonly
+	 * @enum {Number}
+	 */
+	var ReceiverGroup = {
+	  /**
+	                       * 其他人（除了自己之外的所有人）
+	                       */
+	  Others: 0,
+	  /**
+	              * 所有人（包括自己）
+	              */
+	  All: 1,
+	  /**
+	           * 主机客户端
+	           */
+	  MasterClient: 2 };
+
+	/**
+	                                              * 房间类
+	                                              */var
 	Room = function () {function Room() {_classCallCheck(this, Room);}_createClass(Room, [{ key: 'getPlayer',
+
 
 
 
@@ -24662,7 +24818,7 @@
 
 	    /**
 	                                                                                                           * 根据 actorId 获取 Player 对象
-	                                                                                                           * @param {number} actorId 玩家在房间中的 Id
+	                                                                                                           * @param {Number} actorId 玩家在房间中的 Id
 	                                                                                                           * @return {Player}
 	                                                                                                           */value: function getPlayer(
 	    actorId) {
@@ -24679,7 +24835,7 @@
 
 	    /**
 	       * 获取房间内的玩家列表
-	       * @return {Array.<Player>}
+	       * @type {Array.<Player>}
 	       * @readonly
 	       */ }, { key: 'setCustomProperties',
 
@@ -24691,26 +24847,115 @@
 	                                            * @param {Object} properties 自定义属性
 	                                            * @param {Object} [opts] 设置选项
 	                                            * @param {Object} [opts.expectedValues] 期望属性，用于 CAS 检测
-	                                            */value: function setCustomProperties(
-	    properties) {var _ref = arguments.length > 1 && arguments[1] !== undefined ? arguments[1] : {},_ref$expectedValues = _ref.expectedValues,expectedValues = _ref$expectedValues === undefined ? null : _ref$expectedValues;
-	      return this._play._setRoomCustomProperties(properties, expectedValues);
-	    }
+	                                            */value: function () {var _ref = _asyncToGenerator( /*#__PURE__*/regenerator.mark(function _callee(
+	      properties) {var _ref2 = arguments.length > 1 && arguments[1] !== undefined ? arguments[1] : {},_ref2$expectedValues = _ref2.expectedValues,expectedValues = _ref2$expectedValues === undefined ? null : _ref2$expectedValues;return regenerator.wrap(function _callee$(_context) {while (1) {switch (_context.prev = _context.next) {case 0:return _context.abrupt('return',
+	                this._play._setRoomCustomProperties(properties, expectedValues));case 1:case 'end':return _context.stop();}}}, _callee, this);}));function setCustomProperties(_x2) {return _ref.apply(this, arguments);}return setCustomProperties;}()
+
 
 	    /**
-	       * @deprecated
-	       * 获取自定义属性
-	       * @return {Object}
-	       */ }, { key: 'getCustomProperties', value: function getCustomProperties()
-	    {
-	      return this._properties;
-	    }
+	                                                                                                                                                                                                                                                         * 获取自定义属性
+	                                                                                                                                                                                                                                                         * @type {Object}
+	                                                                                                                                                                                                                                                         * @readonly
+	                                                                                                                                                                                                                                                         */ }, { key: 'leave',
+
+
+
 
 	    /**
-	       * 获取自定义属性
-	       * @return {Object}
-	       */ }, { key: '_addPlayer', value: function _addPlayer(
+	                                                                                                                                                                                                                                                                                * 离开房间
+	                                                                                                                                                                                                                                                                                */value: function () {var _ref3 = _asyncToGenerator( /*#__PURE__*/regenerator.mark(function _callee2() {return regenerator.wrap(function _callee2$(_context2) {while (1) {switch (_context2.prev = _context2.next) {case 0:return _context2.abrupt('return',
+
+	                this._play.leaveRoom());case 1:case 'end':return _context2.stop();}}}, _callee2, this);}));function leave() {return _ref3.apply(this, arguments);}return leave;}()
 
 
+	    /**
+	                                                                                                                                                                                    * 踢人
+	                                                                                                                                                                                    * @param {Number} actorId 踢用户的 actorId
+	                                                                                                                                                                                    * @param {Object} [opts] 附带参数
+	                                                                                                                                                                                    * @param {Number} [opts.code] 编码
+	                                                                                                                                                                                    * @param {String} [opts.msg] 附带信息
+	                                                                                                                                                                                    */ }, { key: 'kickPlayer', value: function () {var _ref4 = _asyncToGenerator( /*#__PURE__*/regenerator.mark(function _callee3(
+	      actorId) {var _ref5 = arguments.length > 1 && arguments[1] !== undefined ? arguments[1] : {},_ref5$code = _ref5.code,code = _ref5$code === undefined ? null : _ref5$code,_ref5$msg = _ref5.msg,msg = _ref5$msg === undefined ? null : _ref5$msg;return regenerator.wrap(function _callee3$(_context3) {while (1) {switch (_context3.prev = _context3.next) {case 0:return _context3.abrupt('return',
+	                this._play.kickPlayer(actorId, { code: code, msg: msg }));case 1:case 'end':return _context3.stop();}}}, _callee3, this);}));function kickPlayer(_x4) {return _ref4.apply(this, arguments);}return kickPlayer;}()
+
+
+	    /**
+	                                                                                                                                                                                                                                   * 设置房间开启 / 关闭
+	                                                                                                                                                                                                                                   * @param {Boolean} open 是否开启
+	                                                                                                                                                                                                                                   */ }, { key: 'setOpen', value: function () {var _ref6 = _asyncToGenerator( /*#__PURE__*/regenerator.mark(function _callee4(
+	      open) {return regenerator.wrap(function _callee4$(_context4) {while (1) {switch (_context4.prev = _context4.next) {case 0:return _context4.abrupt('return',
+	                this._play.setRoomOpen(open));case 1:case 'end':return _context4.stop();}}}, _callee4, this);}));function setOpen(_x5) {return _ref6.apply(this, arguments);}return setOpen;}()
+
+
+	    /**
+	                                                                                                                                                                                                 * 设置房间可见 / 不可见
+	                                                                                                                                                                                                 * @param {Boolean} visible 是否可见
+	                                                                                                                                                                                                 */ }, { key: 'setVisible', value: function () {var _ref7 = _asyncToGenerator( /*#__PURE__*/regenerator.mark(function _callee5(
+	      visible) {return regenerator.wrap(function _callee5$(_context5) {while (1) {switch (_context5.prev = _context5.next) {case 0:return _context5.abrupt('return',
+	                this._play.setRoomVisible(visible));case 1:case 'end':return _context5.stop();}}}, _callee5, this);}));function setVisible(_x6) {return _ref7.apply(this, arguments);}return setVisible;}()
+
+
+	    /**
+	                                                                                                                                                                                                             * 设置房间允许的最大玩家数量
+	                                                                                                                                                                                                             * @param {*} count 数量
+	                                                                                                                                                                                                             */ }, { key: 'setMaxPlayerCount', value: function () {var _ref8 = _asyncToGenerator( /*#__PURE__*/regenerator.mark(function _callee6(
+	      count) {return regenerator.wrap(function _callee6$(_context6) {while (1) {switch (_context6.prev = _context6.next) {case 0:return _context6.abrupt('return',
+	                this._play.setRoomMaxPlayerCount(count));case 1:case 'end':return _context6.stop();}}}, _callee6, this);}));function setMaxPlayerCount(_x7) {return _ref8.apply(this, arguments);}return setMaxPlayerCount;}()
+
+
+	    /**
+	                                                                                                                                                                                                                                * 设置房间占位玩家 Id 列表
+	                                                                                                                                                                                                                                * @param {*} expectedUserIds 玩家 Id 列表
+	                                                                                                                                                                                                                                */ }, { key: 'setExpectedUserIds', value: function () {var _ref9 = _asyncToGenerator( /*#__PURE__*/regenerator.mark(function _callee7(
+	      expectedUserIds) {return regenerator.wrap(function _callee7$(_context7) {while (1) {switch (_context7.prev = _context7.next) {case 0:return _context7.abrupt('return',
+	                this._play.setRoomExpectedUserIds(expectedUserIds));case 1:case 'end':return _context7.stop();}}}, _callee7, this);}));function setExpectedUserIds(_x8) {return _ref9.apply(this, arguments);}return setExpectedUserIds;}()
+
+
+	    /**
+	                                                                                                                                                                                                                                             * 清空房间占位玩家 Id 列表
+	                                                                                                                                                                                                                                             */ }, { key: 'clearExpectedUserIds', value: function () {var _ref10 = _asyncToGenerator( /*#__PURE__*/regenerator.mark(function _callee8() {return regenerator.wrap(function _callee8$(_context8) {while (1) {switch (_context8.prev = _context8.next) {case 0:return _context8.abrupt('return',
+
+	                this._play.clearRoomExpectedUserIds());case 1:case 'end':return _context8.stop();}}}, _callee8, this);}));function clearExpectedUserIds() {return _ref10.apply(this, arguments);}return clearExpectedUserIds;}()
+
+
+	    /**
+	                                                                                                                                                                                                                                  * 增加房间占位玩家 Id 列表
+	                                                                                                                                                                                                                                  * @param {*} expectedUserIds 增加的玩家 Id 列表
+	                                                                                                                                                                                                                                  */ }, { key: 'addExpectedUserIds', value: function () {var _ref11 = _asyncToGenerator( /*#__PURE__*/regenerator.mark(function _callee9(
+	      expectedUserIds) {return regenerator.wrap(function _callee9$(_context9) {while (1) {switch (_context9.prev = _context9.next) {case 0:return _context9.abrupt('return',
+	                this._play.addRoomExpectedUserIds(expectedUserIds));case 1:case 'end':return _context9.stop();}}}, _callee9, this);}));function addExpectedUserIds(_x9) {return _ref11.apply(this, arguments);}return addExpectedUserIds;}()
+
+
+	    /**
+	                                                                                                                                                                                                                                              * 移除房间占位玩家 Id 列表
+	                                                                                                                                                                                                                                              * @param {*} expectedUserIds 移除的玩家 Id 列表
+	                                                                                                                                                                                                                                              */ }, { key: 'removeExpectedUserIds', value: function () {var _ref12 = _asyncToGenerator( /*#__PURE__*/regenerator.mark(function _callee10(
+	      expectedUserIds) {return regenerator.wrap(function _callee10$(_context10) {while (1) {switch (_context10.prev = _context10.next) {case 0:return _context10.abrupt('return',
+	                this._play.removeRoomExpectedUserIds(expectedUserIds));case 1:case 'end':return _context10.stop();}}}, _callee10, this);}));function removeExpectedUserIds(_x10) {return _ref12.apply(this, arguments);}return removeExpectedUserIds;}()
+
+
+	    /**
+	                                                                                                                                                                                                                                                          * 设置房主
+	                                                                                                                                                                                                                                                          * @param {Number} newMasterId 新房主 ID
+	                                                                                                                                                                                                                                                          */ }, { key: 'setMaster', value: function () {var _ref13 = _asyncToGenerator( /*#__PURE__*/regenerator.mark(function _callee11(
+	      newMasterId) {return regenerator.wrap(function _callee11$(_context11) {while (1) {switch (_context11.prev = _context11.next) {case 0:return _context11.abrupt('return',
+	                this._play.setMaster(newMasterId));case 1:case 'end':return _context11.stop();}}}, _callee11, this);}));function setMaster(_x11) {return _ref13.apply(this, arguments);}return setMaster;}()
+
+
+	    /**
+	                                                                                                                                                                                                              * 发送自定义消息
+	                                                                                                                                                                                                              * @param {Number|String} eventId 事件 ID
+	                                                                                                                                                                                                              * @param {Object} eventData 事件参数
+	                                                                                                                                                                                                              * @param {Object} options 发送事件选项
+	                                                                                                                                                                                                              * @param {ReceiverGroup} options.receiverGroup 接收组
+	                                                                                                                                                                                                              * @param {Array.<Number>} options.targetActorIds 接收者 Id。如果设置，将会覆盖 receiverGroup
+	                                                                                                                                                                                                              */ }, { key: 'sendEvent', value: function () {var _ref14 = _asyncToGenerator( /*#__PURE__*/regenerator.mark(function _callee12(
+
+	      eventId) {var
+	        eventData = arguments.length > 1 && arguments[1] !== undefined ? arguments[1] : {};var
+	        options = arguments.length > 2 && arguments[2] !== undefined ? arguments[2] : { receiverGroup: ReceiverGroup.All };return regenerator.wrap(function _callee12$(_context12) {while (1) {switch (_context12.prev = _context12.next) {case 0:return _context12.abrupt('return',
+
+	                this._play.sendEvent(eventId, eventData, options));case 1:case 'end':return _context12.stop();}}}, _callee12, this);}));function sendEvent(_x14) {return _ref14.apply(this, arguments);}return sendEvent;}() }, { key: '_addPlayer', value: function _addPlayer(
 
 
 	    newPlayer) {
@@ -24727,34 +24972,51 @@
 
 	    changedProperties) {
 	      this._properties = _Object$assign(this._properties, changedProperties);
+	    } }, { key: '_mergeSystemProps', value: function _mergeSystemProps(
+
+	    changedProps) {var
+	      open = changedProps.open,visible = changedProps.visible,maxMembers = changedProps.maxMembers,expectMembers = changedProps.expectMembers;
+	      if (open !== undefined) {
+	        this._open = open;
+	      }
+	      if (visible !== undefined) {
+	        this._visible = visible;
+	      }
+	      if (maxMembers !== undefined) {
+	        this._maxPlayerCount = maxMembers;
+	      }
+	      if (expectMembers !== undefined) {
+	        this._expectedUserIds = expectMembers;
+	      }
 	    } }, { key: 'name', /**
 	                         * 房间名称
-	                         * @type {string}
+	                         * @type {String}
 	                         * @readonly
 	                         */get: function get() {return this._name;} /**
 	                                                                     * 房间是否开启
-	                                                                     * @type {boolean}
+	                                                                     * @type {Boolean}
 	                                                                     * @readonly
-	                                                                     */ }, { key: 'opened', get: function get() {return this._opened;} /**
-	                                                                                                                                        * 房间是否可见
-	                                                                                                                                        * @type {boolean}
-	                                                                                                                                        * @readonly
-	                                                                                                                                        */ }, { key: 'visible', get: function get() {return this._visible;} /**
-	                                                                                                                                                                                                             * 房间允许的最大玩家数量
-	                                                                                                                                                                                                             * @type {number}
-	                                                                                                                                                                                                             * @readonly
-	                                                                                                                                                                                                             */ }, { key: 'maxPlayerCount', get: function get() {return this._maxPlayerCount;} /**
-	                                                                                                                                                                                                                                                                                                * 获取房主
-	                                                                                                                                                                                                                                                                                                * @readonly
-	                                                                                                                                                                                                                                                                                                */ }, { key: 'master', get: function get() {return this.getPlayer(this.masterId);} /**
-	                                                                                                                                                                                                                                                                                                                                                                                    * 房间主机玩家 ID
-	                                                                                                                                                                                                                                                                                                                                                                                    * @type {number}
-	                                                                                                                                                                                                                                                                                                                                                                                    * @readonly
-	                                                                                                                                                                                                                                                                                                                                                                                    */ }, { key: 'masterId', get: function get() {return this._masterActorId;} /**
-	                                                                                                                                                                                                                                                                                                                                                                                                                                                                * 邀请的好友 ID 列表
-	                                                                                                                                                                                                                                                                                                                                                                                                                                                                * @type {Array.<string>}
-	                                                                                                                                                                                                                                                                                                                                                                                                                                                                * @readonly
-	                                                                                                                                                                                                                                                                                                                                                                                                                                                                */ }, { key: 'expectedUserIds', get: function get() {return this._expectedUserIds;} }, { key: 'playerList', get: function get() {return _Object$values(this._players);} }, { key: 'CustomProperties', get: function get() {return this._properties;} }], [{ key: '_newFromJSONObject', /* eslint no-param-reassign: ["error", { "props": false }] */value: function _newFromJSONObject(roomJSONObject) {var room = new Room();room._name = roomJSONObject.cid;room._opened = roomJSONObject.open;room._visible = roomJSONObject.visible;room._maxPlayerCount = roomJSONObject.maxMembers;room._masterActorId = roomJSONObject.masterActorId;room._expectedUserIds = roomJSONObject.expectMembers;room._players = {};for (var i = 0; i < roomJSONObject.members.length; i += 1) {var playerDTO = roomJSONObject.members[i];var player = Player._newFromJSONObject(playerDTO);room._players[player.actorId] = player;}if (roomJSONObject.attr) {room._properties = roomJSONObject.attr;} else {room._properties = {};}return room;} }]);return Room;}();
+	                                                                     */ }, { key: 'open', get: function get() {return this._open;} /**
+	                                                                                                                                    * 房间是否可见
+	                                                                                                                                    * @type {Boolean}
+	                                                                                                                                    * @readonly
+	                                                                                                                                    */ }, { key: 'visible', get: function get() {return this._visible;} /**
+	                                                                                                                                                                                                         * 房间允许的最大玩家数量
+	                                                                                                                                                                                                         * @type {Number}
+	                                                                                                                                                                                                         * @readonly
+	                                                                                                                                                                                                         */ }, { key: 'maxPlayerCount', get: function get() {return this._maxPlayerCount;} /**
+	                                                                                                                                                                                                                                                                                            * 获取房主
+	                                                                                                                                                                                                                                                                                            * @type {Player}
+	                                                                                                                                                                                                                                                                                            * @readonly
+	                                                                                                                                                                                                                                                                                            */ }, { key: 'master', get: function get() {return this.getPlayer(this.masterId);} /**
+	                                                                                                                                                                                                                                                                                                                                                                                * 房间主机玩家 ID
+	                                                                                                                                                                                                                                                                                                                                                                                * @type {Number}
+	                                                                                                                                                                                                                                                                                                                                                                                * @readonly
+	                                                                                                                                                                                                                                                                                                                                                                                */ }, { key: 'masterId', get: function get() {return this._masterActorId;} /**
+	                                                                                                                                                                                                                                                                                                                                                                                                                                                            * 邀请的好友 ID 列表
+	                                                                                                                                                                                                                                                                                                                                                                                                                                                            * @type {Array.<String>}
+	                                                                                                                                                                                                                                                                                                                                                                                                                                                            * @readonly
+	                                                                                                                                                                                                                                                                                                                                                                                                                                                            */ }, { key: 'expectedUserIds', get: function get() {return this._expectedUserIds;} }, { key: 'playerList', get: function get() {return _Object$values(this._players);} }, { key: 'customProperties', get: function get() {return this._properties;} }], [{ key: '_newFromJSONObject', /* eslint no-param-reassign: ["error", { "props": false }] */value: function _newFromJSONObject(roomJSONObject) {var room = new Room();room._name = roomJSONObject.cid;room._open = roomJSONObject.open;room._visible = roomJSONObject.visible;room._maxPlayerCount = roomJSONObject.maxMembers;room._masterActorId = roomJSONObject.masterActorId;room._expectedUserIds = roomJSONObject.expectMembers;room._players = {};for (var i = 0; i < roomJSONObject.members.length; i += 1) {var playerDTO = roomJSONObject.members[i];var player = Player._newFromJSONObject(playerDTO);room._players[player.actorId] = player;}if (roomJSONObject.attr) {room._properties = roomJSONObject.attr;} else {room._properties = {};}return room;} }]);return Room;}();
 
 	var GAME_KEEPALIVE_DURATION = 7000;
 
@@ -24765,260 +25027,223 @@
 	var ROOM_OPEN_CHANGED_EVENT = 'ROOM_OPEN_CHANGED_EVENT';
 	var ROOM_VISIBLE_CHANGED_EVENT = 'ROOM_VISIBLE_CHANGED_EVENT';
 	var ROOM_PROPERTIES_CHANGED_EVENT = 'ROOM_PROPERTIES_CHANGED_EVENT';
+	var ROOM_SYSTEM_PROPERTIES_CHANGED_EVENT =
+	'ROOM_SYSTEM_PROPERTIES_CHANGED_EVENT';
 	var PLAYER_PROPERTIES_CHANGED_EVENT =
 	'PLAYER_PROPERTIES_CHANGED_EVENT';
 	var PLAYER_OFFLINE_EVENT = 'PLAYER_OFFLINE_EVENT';
 	var PLAYER_ONLINE_EVENT = 'PLAYER_ONLINE_EVENT';
 	var SEND_CUSTOM_EVENT = 'SEND_CUSTOM_EVENT';
+	var ROOM_KICKED_EVENT = 'ROOM_KICKED_EVENT';
 
 	/* eslint class-methods-use-this: ["error", { "exceptMethods": ["_getPingDuration"] }] */var
 	GameConnection = function (_Connection) {_inherits(GameConnection, _Connection);
 	  function GameConnection() {_classCallCheck(this, GameConnection);var _this = _possibleConstructorReturn(this, (GameConnection.__proto__ || _Object$getPrototypeOf(GameConnection)).call(this));
 
 	    _this._flag = 'game';return _this;
-	  }_createClass(GameConnection, [{ key: 'openSession', value: function openSession(
+	  }_createClass(GameConnection, [{ key: 'openSession', value: function () {var _ref = _asyncToGenerator( /*#__PURE__*/regenerator.mark(function _callee(
 
-	    appId, userId, gameVersion) {var _this2 = this;
-	      return new _Promise(function () {var _ref = _asyncToGenerator( /*#__PURE__*/regenerator.mark(function _callee(resolve, reject) {var msg, res, reasonCode, detail;return regenerator.wrap(function _callee$(_context) {while (1) {switch (_context.prev = _context.next) {case 0:_context.prev = 0;
+	      appId, userId, gameVersion) {var msg;return regenerator.wrap(function _callee$(_context) {while (1) {switch (_context.prev = _context.next) {case 0:
+	                msg = {
+	                  cmd: 'session',
+	                  op: 'open',
+	                  appId: appId,
+	                  peerId: userId,
+	                  sdkVersion: version,
+	                  protocolVersion: protocolVersion,
+	                  gameVersion: gameVersion };_context.next = 3;return _get(GameConnection.prototype.__proto__ || _Object$getPrototypeOf(GameConnection.prototype), 'send', this).call(this,
 
-	                  msg = {
-	                    cmd: 'session',
-	                    op: 'open',
-	                    appId: appId,
-	                    peerId: userId,
-	                    sdkVersion: version,
-	                    gameVersion: gameVersion };_context.next = 4;return _get(GameConnection.prototype.__proto__ || _Object$getPrototypeOf(GameConnection.prototype), 'send', _this2).call(_this2,
-
-	                  msg);case 4:res = _context.sent;if (!
-	                  res.reasonCode) {_context.next = 12;break;}_context.next = 8;return (
-	                    _this2.close());case 8:
-	                  reasonCode = res.reasonCode, detail = res.detail;
-	                  reject(new PlayError(reasonCode, detail));_context.next = 13;break;case 12:
-
-	                  resolve();case 13:_context.next = 18;break;case 15:_context.prev = 15;_context.t0 = _context['catch'](0);
+	                msg, undefined, false);case 3:case 'end':return _context.stop();}}}, _callee, this);}));function openSession(_x, _x2, _x3) {return _ref.apply(this, arguments);}return openSession;}() }, { key: 'createRoom', value: function () {var _ref2 = _asyncToGenerator( /*#__PURE__*/regenerator.mark(function _callee2(
 
 
-	                  reject(_context.t0);case 18:case 'end':return _context.stop();}}}, _callee, _this2, [[0, 15]]);}));return function (_x, _x2) {return _ref.apply(this, arguments);};}());
+	      roomId, roomOptions, expectedUserIds) {var msg, res;return regenerator.wrap(function _callee2$(_context2) {while (1) {switch (_context2.prev = _context2.next) {case 0:
+	                msg = {
+	                  cmd: 'conv',
+	                  op: 'start' };
+
+	                if (roomId) {
+	                  msg.cid = roomId;
+	                }
+	                // 拷贝房间属性（包括 系统属性和玩家定义属性）
+	                if (roomOptions) {
+	                  msg = _Object$assign(msg, convertRoomOptions(roomOptions));
+	                }
+	                if (expectedUserIds) {
+	                  msg.expectMembers = expectedUserIds;
+	                }_context2.next = 6;return _get(GameConnection.prototype.__proto__ || _Object$getPrototypeOf(GameConnection.prototype), 'send', this).call(this,
+	                msg, undefined, false);case 6:res = _context2.sent;return _context2.abrupt('return',
+	                Room._newFromJSONObject(res));case 8:case 'end':return _context2.stop();}}}, _callee2, this);}));function createRoom(_x4, _x5, _x6) {return _ref2.apply(this, arguments);}return createRoom;}() }, { key: 'joinRoom', value: function () {var _ref3 = _asyncToGenerator( /*#__PURE__*/regenerator.mark(function _callee3(
 
 
-	    } }, { key: 'createRoom', value: function createRoom(
+	      roomName, matchProperties, expectedUserIds) {var msg, res;return regenerator.wrap(function _callee3$(_context3) {while (1) {switch (_context3.prev = _context3.next) {case 0:
+	                msg = {
+	                  cmd: 'conv',
+	                  op: 'add',
+	                  cid: roomName };
 
-	    roomId, roomOptions, expectedUserIds) {var _this3 = this;
-	      return new _Promise(function () {var _ref2 = _asyncToGenerator( /*#__PURE__*/regenerator.mark(function _callee2(resolve, reject) {var msg, res, reasonCode, detail, room;return regenerator.wrap(function _callee2$(_context2) {while (1) {switch (_context2.prev = _context2.next) {case 0:_context2.prev = 0;
-
-	                  msg = {
-	                    cmd: 'conv',
-	                    op: 'start' };
-
-	                  if (roomId) {
-	                    msg.cid = roomId;
-	                  }
-	                  // 拷贝房间属性（包括 系统属性和玩家定义属性）
-	                  if (roomOptions) {
-	                    msg = _Object$assign(msg, convertRoomOptions(roomOptions));
-	                  }
-	                  if (expectedUserIds) {
-	                    msg.expectMembers = expectedUserIds;
-	                  }_context2.next = 7;return _get(GameConnection.prototype.__proto__ || _Object$getPrototypeOf(GameConnection.prototype), 'send', _this3).call(_this3,
-	                  msg);case 7:res = _context2.sent;if (!
-	                  res.reasonCode) {_context2.next = 15;break;}_context2.next = 11;return (
-	                    _this3.close());case 11:
-	                  reasonCode = res.reasonCode, detail = res.detail;
-	                  reject(new PlayError(reasonCode, detail));_context2.next = 17;break;case 15:
-
-	                  room = Room._newFromJSONObject(res);
-	                  resolve(room);case 17:_context2.next = 24;break;case 19:_context2.prev = 19;_context2.t0 = _context2['catch'](0);_context2.next = 23;return (
+	                if (matchProperties) {
+	                  msg.expectAttr = matchProperties;
+	                }
+	                if (expectedUserIds) {
+	                  msg.expectMembers = expectedUserIds;
+	                }_context3.next = 5;return _get(GameConnection.prototype.__proto__ || _Object$getPrototypeOf(GameConnection.prototype), 'send', this).call(this,
+	                msg, undefined, false);case 5:res = _context3.sent;return _context3.abrupt('return',
+	                Room._newFromJSONObject(res));case 7:case 'end':return _context3.stop();}}}, _callee3, this);}));function joinRoom(_x7, _x8, _x9) {return _ref3.apply(this, arguments);}return joinRoom;}() }, { key: 'leaveRoom', value: function () {var _ref4 = _asyncToGenerator( /*#__PURE__*/regenerator.mark(function _callee4() {var msg;return regenerator.wrap(function _callee4$(_context4) {while (1) {switch (_context4.prev = _context4.next) {case 0:
 
 
-	                    _this3.close());case 23:
-	                  reject(_context2.t0);case 24:case 'end':return _context2.stop();}}}, _callee2, _this3, [[0, 19]]);}));return function (_x3, _x4) {return _ref2.apply(this, arguments);};}());
+
+	                msg = {
+	                  cmd: 'conv',
+	                  op: 'remove' };_context4.next = 3;return _get(GameConnection.prototype.__proto__ || _Object$getPrototypeOf(GameConnection.prototype), 'send', this).call(this,
+
+	                msg, undefined, false);case 3:case 'end':return _context4.stop();}}}, _callee4, this);}));function leaveRoom() {return _ref4.apply(this, arguments);}return leaveRoom;}() }, { key: 'setRoomOpen', value: function setRoomOpen(
 
 
-	    } }, { key: 'joinRoom', value: function joinRoom(
-
-	    roomName, matchProperties, expectedUserIds) {var _this4 = this;
-	      return new _Promise(function () {var _ref3 = _asyncToGenerator( /*#__PURE__*/regenerator.mark(function _callee3(resolve, reject) {var msg, res, reasonCode, detail, room;return regenerator.wrap(function _callee3$(_context3) {while (1) {switch (_context3.prev = _context3.next) {case 0:_context3.prev = 0;
-
-	                  msg = {
-	                    cmd: 'conv',
-	                    op: 'add',
-	                    cid: roomName };
-
-	                  if (matchProperties) {
-	                    msg.expectAttr = matchProperties;
-	                  }
-	                  if (expectedUserIds) {
-	                    msg.expectMembers = expectedUserIds;
-	                  }_context3.next = 6;return _get(GameConnection.prototype.__proto__ || _Object$getPrototypeOf(GameConnection.prototype), 'send', _this4).call(_this4,
-	                  msg);case 6:res = _context3.sent;if (!
-	                  res.reasonCode) {_context3.next = 14;break;}_context3.next = 10;return (
-	                    _this4.close());case 10:
-	                  reasonCode = res.reasonCode, detail = res.detail;
-	                  reject(new PlayError(reasonCode, detail));_context3.next = 16;break;case 14:
-
-	                  room = Room._newFromJSONObject(res);
-	                  resolve(room);case 16:_context3.next = 23;break;case 18:_context3.prev = 18;_context3.t0 = _context3['catch'](0);_context3.next = 22;return (
+	    open) {
+	      var msg = {
+	        cmd: 'conv',
+	        op: 'update-system-property',
+	        sysAttr: {
+	          open: open } };
 
 
-	                    _this4.close());case 22:
-	                  reject(_context3.t0);case 23:case 'end':return _context3.stop();}}}, _callee3, _this4, [[0, 18]]);}));return function (_x5, _x6) {return _ref3.apply(this, arguments);};}());
-
-
-	    } }, { key: 'leaveRoom', value: function leaveRoom()
-
-	    {var _this5 = this;
-	      return new _Promise(function () {var _ref4 = _asyncToGenerator( /*#__PURE__*/regenerator.mark(function _callee4(resolve, reject) {var msg, res, reasonCode, detail;return regenerator.wrap(function _callee4$(_context4) {while (1) {switch (_context4.prev = _context4.next) {case 0:_context4.prev = 0;
-
-	                  msg = {
-	                    cmd: 'conv',
-	                    op: 'remove' };_context4.next = 4;return _get(GameConnection.prototype.__proto__ || _Object$getPrototypeOf(GameConnection.prototype), 'send', _this5).call(_this5,
-
-	                  msg);case 4:res = _context4.sent;
-	                  if (res.reasonCode) {
-	                    reasonCode = res.reasonCode, detail = res.detail;
-	                    reject(new PlayError(reasonCode, detail));
-	                  } else {
-	                    resolve();
-	                  }_context4.next = 11;break;case 8:_context4.prev = 8;_context4.t0 = _context4['catch'](0);
-
-	                  reject(_context4.t0);case 11:case 'end':return _context4.stop();}}}, _callee4, _this5, [[0, 8]]);}));return function (_x7, _x8) {return _ref4.apply(this, arguments);};}());
-
-
-	    } }, { key: 'setRoomOpened', value: function setRoomOpened(
-
-	    opened) {var _this6 = this;
-	      return new _Promise(function () {var _ref5 = _asyncToGenerator( /*#__PURE__*/regenerator.mark(function _callee5(resolve, reject) {var msg, res, reasonCode, detail;return regenerator.wrap(function _callee5$(_context5) {while (1) {switch (_context5.prev = _context5.next) {case 0:_context5.prev = 0;
-
-	                  msg = {
-	                    cmd: 'conv',
-	                    op: 'open',
-	                    toggle: opened };_context5.next = 4;return _get(GameConnection.prototype.__proto__ || _Object$getPrototypeOf(GameConnection.prototype), 'send', _this6).call(_this6,
-
-	                  msg);case 4:res = _context5.sent;
-	                  if (res.reasonCode) {
-	                    reasonCode = res.reasonCode, detail = res.detail;
-	                    reject(new PlayError(reasonCode, detail));
-	                  } else {
-	                    resolve();
-	                  }_context5.next = 11;break;case 8:_context5.prev = 8;_context5.t0 = _context5['catch'](0);
-
-	                  reject(_context5.t0);case 11:case 'end':return _context5.stop();}}}, _callee5, _this6, [[0, 8]]);}));return function (_x9, _x10) {return _ref5.apply(this, arguments);};}());
-
-
+	      return _get(GameConnection.prototype.__proto__ || _Object$getPrototypeOf(GameConnection.prototype), 'send', this).call(this, msg, undefined, false);
 	    } }, { key: 'setRoomVisible', value: function setRoomVisible(
 
-	    visible) {var _this7 = this;
-	      return new _Promise(function () {var _ref6 = _asyncToGenerator( /*#__PURE__*/regenerator.mark(function _callee6(resolve, reject) {var msg, res, reasonCode, detail;return regenerator.wrap(function _callee6$(_context6) {while (1) {switch (_context6.prev = _context6.next) {case 0:_context6.prev = 0;
-
-	                  msg = {
-	                    cmd: 'conv',
-	                    op: 'visible',
-	                    toggle: visible };_context6.next = 4;return _get(GameConnection.prototype.__proto__ || _Object$getPrototypeOf(GameConnection.prototype), 'send', _this7).call(_this7,
-
-	                  msg);case 4:res = _context6.sent;
-	                  if (res.reasonCode) {
-	                    reasonCode = res.reasonCode, detail = res.detail;
-	                    reject(new PlayError(reasonCode, detail));
-	                  } else {
-	                    resolve();
-	                  }_context6.next = 11;break;case 8:_context6.prev = 8;_context6.t0 = _context6['catch'](0);
-
-	                  reject(_context6.t0);case 11:case 'end':return _context6.stop();}}}, _callee6, _this7, [[0, 8]]);}));return function (_x11, _x12) {return _ref6.apply(this, arguments);};}());
+	    visible) {
+	      var msg = {
+	        cmd: 'conv',
+	        op: 'update-system-property',
+	        sysAttr: {
+	          visible: visible } };
 
 
+	      return _get(GameConnection.prototype.__proto__ || _Object$getPrototypeOf(GameConnection.prototype), 'send', this).call(this, msg, undefined, false);
+	    } }, { key: 'setRoomMaxPlayerCount', value: function setRoomMaxPlayerCount(
+
+	    count) {
+	      var msg = {
+	        cmd: 'conv',
+	        op: 'update-system-property',
+	        sysAttr: {
+	          maxMembers: count } };
+
+
+	      return _get(GameConnection.prototype.__proto__ || _Object$getPrototypeOf(GameConnection.prototype), 'send', this).call(this, msg, undefined, false);
+	    } }, { key: 'setRoomExpectedUserIds', value: function setRoomExpectedUserIds(
+
+	    expectedUserIds) {
+	      var msg = {
+	        cmd: 'conv',
+	        op: 'update-system-property',
+	        sysAttr: {
+	          expectMembers: {
+	            $set: expectedUserIds } } };
+
+
+
+	      return _get(GameConnection.prototype.__proto__ || _Object$getPrototypeOf(GameConnection.prototype), 'send', this).call(this, msg, undefined, false);
+	    } }, { key: 'clearRoomExpectedUserIds', value: function clearRoomExpectedUserIds()
+
+	    {
+	      var msg = {
+	        cmd: 'conv',
+	        op: 'update-system-property',
+	        sysAttr: {
+	          expectMembers: {
+	            $drop: true } } };
+
+
+
+	      return _get(GameConnection.prototype.__proto__ || _Object$getPrototypeOf(GameConnection.prototype), 'send', this).call(this, msg, undefined, false);
+	    } }, { key: 'addRoomExpectedUserIds', value: function addRoomExpectedUserIds(
+
+	    expectedUserIds) {
+	      var msg = {
+	        cmd: 'conv',
+	        op: 'update-system-property',
+	        sysAttr: {
+	          expectMembers: {
+	            $add: expectedUserIds } } };
+
+
+
+	      return _get(GameConnection.prototype.__proto__ || _Object$getPrototypeOf(GameConnection.prototype), 'send', this).call(this, msg, undefined, false);
+	    } }, { key: 'removeRoomExpectedUserIds', value: function removeRoomExpectedUserIds(
+
+	    expectedUserIds) {
+	      var msg = {
+	        cmd: 'conv',
+	        op: 'update-system-property',
+	        sysAttr: {
+	          expectMembers: {
+	            $remove: expectedUserIds } } };
+
+
+
+	      return _get(GameConnection.prototype.__proto__ || _Object$getPrototypeOf(GameConnection.prototype), 'send', this).call(this, msg, undefined, false);
 	    } }, { key: 'setMaster', value: function setMaster(
 
-	    newMasterId) {var _this8 = this;
-	      return new _Promise(function () {var _ref7 = _asyncToGenerator( /*#__PURE__*/regenerator.mark(function _callee7(resolve, reject) {var msg, res, reasonCode, detail;return regenerator.wrap(function _callee7$(_context7) {while (1) {switch (_context7.prev = _context7.next) {case 0:_context7.prev = 0;
+	    newMasterId) {
+	      var msg = {
+	        cmd: 'conv',
+	        op: 'update-master-client',
+	        masterActorId: newMasterId };
 
-	                  msg = {
-	                    cmd: 'conv',
-	                    op: 'update-master-client',
-	                    masterActorId: newMasterId };_context7.next = 4;return _get(GameConnection.prototype.__proto__ || _Object$getPrototypeOf(GameConnection.prototype), 'send', _this8).call(_this8,
+	      return _get(GameConnection.prototype.__proto__ || _Object$getPrototypeOf(GameConnection.prototype), 'send', this).call(this, msg, undefined, false);
+	    } }, { key: 'kickPlayer', value: function kickPlayer(
 
-	                  msg);case 4:res = _context7.sent;
-	                  if (res.reasonCode) {
-	                    reasonCode = res.reasonCode, detail = res.detail;
-	                    reject(new PlayError(reasonCode, detail));
-	                  } else {
-	                    resolve();
-	                  }_context7.next = 11;break;case 8:_context7.prev = 8;_context7.t0 = _context7['catch'](0);
+	    actorId, code, msg) {
+	      var req = {
+	        cmd: 'conv',
+	        op: 'kick',
+	        i: this._getMsgId(),
+	        targetActorId: actorId,
+	        appCode: code,
+	        appMsg: msg };
 
-	                  reject(_context7.t0);case 11:case 'end':return _context7.stop();}}}, _callee7, _this8, [[0, 8]]);}));return function (_x13, _x14) {return _ref7.apply(this, arguments);};}());
+	      return _get(GameConnection.prototype.__proto__ || _Object$getPrototypeOf(GameConnection.prototype), 'send', this).call(this, req, undefined, false);
+	    } }, { key: 'sendEvent', value: function () {var _ref5 = _asyncToGenerator( /*#__PURE__*/regenerator.mark(function _callee5(
 
+	      eventId, eventData, options) {var msg;return regenerator.wrap(function _callee5$(_context5) {while (1) {switch (_context5.prev = _context5.next) {case 0:
+	                msg = {
+	                  cmd: 'direct',
+	                  eventId: eventId,
+	                  msg: eventData,
+	                  receiverGroup: options.receiverGroup,
+	                  toActorIds: options.targetActorIds };_context5.next = 3;return _get(GameConnection.prototype.__proto__ || _Object$getPrototypeOf(GameConnection.prototype), 'send', this).call(this,
 
-	    } }, { key: 'sendEvent', value: function sendEvent(
-
-	    eventId, eventData, options) {var _this9 = this;
-	      return new _Promise(function () {var _ref8 = _asyncToGenerator( /*#__PURE__*/regenerator.mark(function _callee8(resolve, reject) {var msg;return regenerator.wrap(function _callee8$(_context8) {while (1) {switch (_context8.prev = _context8.next) {case 0:_context8.prev = 0;
-
-	                  msg = {
-	                    cmd: 'direct',
-	                    eventId: eventId,
-	                    msg: eventData,
-	                    receiverGroup: options.receiverGroup,
-	                    toActorIds: options.targetActorIds };_context8.next = 4;return _get(GameConnection.prototype.__proto__ || _Object$getPrototypeOf(GameConnection.prototype), 'send', _this9).call(_this9,
-
-	                  msg);case 4:
-	                  resolve();_context8.next = 10;break;case 7:_context8.prev = 7;_context8.t0 = _context8['catch'](0);
-
-	                  reject(_context8.t0);case 10:case 'end':return _context8.stop();}}}, _callee8, _this9, [[0, 7]]);}));return function (_x15, _x16) {return _ref8.apply(this, arguments);};}());
+	                msg, false);case 3:case 'end':return _context5.stop();}}}, _callee5, this);}));function sendEvent(_x10, _x11, _x12) {return _ref5.apply(this, arguments);}return sendEvent;}() }, { key: 'setRoomCustomProperties', value: function setRoomCustomProperties(
 
 
-	    } }, { key: 'setRoomCustomProperties', value: function setRoomCustomProperties(
+	    properties, expectedValues) {
+	      var msg = {
+	        cmd: 'conv',
+	        op: 'update',
+	        attr: properties };
 
-	    properties, expectedValues) {var _this10 = this;
-	      return new _Promise(function () {var _ref9 = _asyncToGenerator( /*#__PURE__*/regenerator.mark(function _callee9(resolve, reject) {var msg, res, reasonCode, detail;return regenerator.wrap(function _callee9$(_context9) {while (1) {switch (_context9.prev = _context9.next) {case 0:_context9.prev = 0;
-
-	                  msg = {
-	                    cmd: 'conv',
-	                    op: 'update',
-	                    attr: properties };
-
-	                  if (expectedValues) {
-	                    msg.expectAttr = expectedValues;
-	                  }_context9.next = 5;return _get(GameConnection.prototype.__proto__ || _Object$getPrototypeOf(GameConnection.prototype), 'send', _this10).call(_this10,
-	                  msg);case 5:res = _context9.sent;
-	                  if (res.reasonCode) {
-	                    reasonCode = res.reasonCode, detail = res.detail;
-	                    reject(new PlayError(reasonCode, detail));
-	                  } else {
-	                    resolve();
-	                  }_context9.next = 12;break;case 9:_context9.prev = 9;_context9.t0 = _context9['catch'](0);
-
-	                  reject(_context9.t0);case 12:case 'end':return _context9.stop();}}}, _callee9, _this10, [[0, 9]]);}));return function (_x17, _x18) {return _ref9.apply(this, arguments);};}());
-
-
+	      if (expectedValues) {
+	        msg.expectAttr = expectedValues;
+	      }
+	      return _get(GameConnection.prototype.__proto__ || _Object$getPrototypeOf(GameConnection.prototype), 'send', this).call(this, msg, undefined, false);
 	    } }, { key: 'setPlayerCustomProperties', value: function setPlayerCustomProperties(
 
-	    actorId, properties, expectedValues) {var _this11 = this;
-	      return new _Promise(function () {var _ref10 = _asyncToGenerator( /*#__PURE__*/regenerator.mark(function _callee10(resolve, reject) {var msg, res, reasonCode, detail;return regenerator.wrap(function _callee10$(_context10) {while (1) {switch (_context10.prev = _context10.next) {case 0:
-	                  try {
-	                    msg = {
-	                      cmd: 'conv',
-	                      op: 'update-player-prop',
-	                      targetActorId: actorId,
-	                      attr: properties };
+	    actorId, properties, expectedValues) {
+	      var msg = {
+	        cmd: 'conv',
+	        op: 'update-player-prop',
+	        targetActorId: actorId,
+	        attr: properties };
 
-	                    if (expectedValues) {
-	                      msg.expectAttr = expectedValues;
-	                    }
-	                    res = _get(GameConnection.prototype.__proto__ || _Object$getPrototypeOf(GameConnection.prototype), 'send', _this11).call(_this11, msg);
-	                    if (res.reasonCode) {
-	                      reasonCode = res.reasonCode, detail = res.detail;
-	                      reject(new PlayError(reasonCode, detail));
-	                    } else {
-	                      resolve();
-	                    }
-	                  } catch (err) {
-	                    reject(err);
-	                  }case 1:case 'end':return _context10.stop();}}}, _callee10, _this11);}));return function (_x19, _x20) {return _ref10.apply(this, arguments);};}());
-
+	      if (expectedValues) {
+	        msg.expectAttr = expectedValues;
+	      }
+	      return _get(GameConnection.prototype.__proto__ || _Object$getPrototypeOf(GameConnection.prototype), 'send', this).call(this, msg, undefined, false);
 	    } }, { key: '_getPingDuration', value: function _getPingDuration()
 
 	    {
 	      return GAME_KEEPALIVE_DURATION;
-	    } }, { key: '_handleMessage', value: function _handleMessage(
+	    } }, { key: '_handleNotification', value: function _handleNotification(
 
 	    msg) {
 	      switch (msg.cmd) {
@@ -25033,7 +25258,7 @@
 	            case 'master-client-changed':
 	              this._handleMasterChangedMsg(msg);
 	              break;
-	            case 'opened-notify':
+	            case 'open-notify':
 	              this._handleRoomOpenChangedMsg(msg);
 	              break;
 	            case 'visible-notify':
@@ -25050,6 +25275,12 @@
 	              break;
 	            case 'members-online':
 	              this._handlePlayerOnlineMsg(msg);
+	              break;
+	            case 'kicked-notice':
+	              this._handleKickedMsg(msg);
+	              break;
+	            case 'system-property-updated-notify':
+	              this._handleRoomSystemPropsChangedMsg(msg);
 	              break;
 	            default:
 	              _get(GameConnection.prototype.__proto__ || _Object$getPrototypeOf(GameConnection.prototype), '_handleUnknownMsg', this).call(this, msg);
@@ -25078,7 +25309,7 @@
 	    } }, { key: '_handlePlayerLeftMsg', value: function _handlePlayerLeftMsg(
 
 	    msg) {var
-	      actorId = msg.initByActor;
+	      actorId = msg.actorId;
 	      this.emit(PLAYER_LEFT_EVENT, actorId);
 	    } }, { key: '_handleMasterChangedMsg', value: function _handleMasterChangedMsg(
 
@@ -25121,12 +25352,28 @@
 	    msg) {var
 	      eventId = msg.eventId,eventData = msg.msg,senderId = msg.fromActorId;
 	      this.emit(SEND_CUSTOM_EVENT, eventId, eventData, senderId);
+	    } }, { key: '_handleKickedMsg', value: function _handleKickedMsg(
+
+	    msg) {var
+	      appCode = msg.appCode,appMsg = msg.appMsg;
+	      this.emit(ROOM_KICKED_EVENT, appCode, appMsg);
+	    } }, { key: '_handleRoomSystemPropsChangedMsg', value: function _handleRoomSystemPropsChangedMsg(
+
+	    msg) {var
+	      sysAttr = msg.sysAttr;
+	      var changedProps = {
+	        open: sysAttr.open,
+	        visible: sysAttr.visible,
+	        maxPlayerCount: sysAttr.maxMembers,
+	        expectedUserIds: sysAttr.expectMembers };
+
+	      this.emit(ROOM_SYSTEM_PROPERTIES_CHANGED_EVENT, changedProps);
 	    } }]);return GameConnection;}(Connection);
 
 	/**
 	 * 事件
 	 * @readonly
-	 * @enum {string}
+	 * @enum {String}
 	 */
 	var Event = {
 	  /**
@@ -25215,11 +25462,18 @@
 	                                                     */
 	  MASTER_SWITCHED: 'masterSwitched',
 	  /**
-	                                      * 房间「开启 / 关闭」
-	                                      * @event Play#ROOM_OPEN_CHANGED
+	                                      * 房间系统属性变化
+	                                      * @event Play#ROOM_SYSTEM_PROPERTIES_CHANGED
 	                                      * @param {Object} payload
-	                                      * @param {Boolean} payload.opened
+	                                      * @param {Object} payload.changedProps
 	                                      */
+	  ROOM_SYSTEM_PROPERTIES_CHANGED: 'roomSystemPropertiesChanged',
+	  /**
+	                                                                  * 房间「开启 / 关闭」
+	                                                                  * @event Play#ROOM_OPEN_CHANGED
+	                                                                  * @param {Object} payload
+	                                                                  * @param {Boolean} payload.open
+	                                                                  */
 	  ROOM_OPEN_CHANGED: 'roomOpenChanged',
 	  /**
 	                                         * 房间「可见 / 不可见」
@@ -25234,11 +25488,19 @@
 	                                               */
 	  ROOM_LEFT: 'roomLeft',
 	  /**
-	                          * 房间自定义属性变化
-	                          * @event Play#ROOM_CUSTOM_PROPERTIES_CHANGED
+	                          * 被踢出房间
+	                          * @event Play#ROOM_KICKED
 	                          * @param {Object} payload
-	                          * @param {Object} payload.changedProps
+	                          * @param {Number} payload.code
+	                          * @param {String} payload.msg
 	                          */
+	  ROOM_KICKED: 'roomKicked',
+	  /**
+	                              * 房间自定义属性变化
+	                              * @event Play#ROOM_CUSTOM_PROPERTIES_CHANGED
+	                              * @param {Object} payload
+	                              * @param {Object} payload.changedProps
+	                              */
 	  ROOM_CUSTOM_PROPERTIES_CHANGED: 'roomCustomPropertiesChanged',
 	  /**
 	                                                                  * 玩家自定义属性变化
@@ -25268,14 +25530,19 @@
 
 	var
 
-	AppRouter = function () {
-	  function AppRouter(appId) {_classCallCheck(this, AppRouter);
+	PlayRouter = function () {
+	  function PlayRouter(appId, playServer) {_classCallCheck(this, PlayRouter);
 	    this._appId = appId;
+	    this._playServer = playServer;
 	    this._url = null;
 	    this._serverValidTimestamp = 0;
-	  }_createClass(AppRouter, [{ key: 'fetch', value: function fetch()
+	  }_createClass(PlayRouter, [{ key: 'fetch', value: function fetch()
 
 	    {
+	      // 私有部署和本地调试
+	      if (this._playServer !== undefined) {
+	        return _Promise.resolve(this._playServer + '/1/multiplayer/router/route');
+	      }
 	      var now = Date.now();
 	      if (now < this._serverValidTimestamp) {
 	        // 在有效期内，则直接返回缓存数据
@@ -25300,8 +25567,16 @@
 	              reject(err);
 	            } else {
 	              var body = JSON.parse(response.text);var
-	              ttl = body.ttl,playServer = body.play_server;
-	              _this._url = 'https://' + playServer + '/1/multiplayer/router/router';
+
+	              ttl =
+
+
+	              body.ttl,secondaryServer = body.play_server,primaryServer = body.multiplayer_router_server;
+	              var routerServer = primaryServer || secondaryServer;
+	              if (routerServer === undefined) {
+	                reject(new Error('router server is null'));
+	              }
+	              _this._url = 'https://' + routerServer + '/1/multiplayer/router/route';
 	              _this._serverValidTimestamp = Date.now() + ttl * 1000;
 	              debug('server valid timestamp: ' + _this._serverValidTimestamp);
 	              debug('get app router from server: ' + _this._url);
@@ -25318,7 +25593,7 @@
 	      if (this._httpReq) {
 	        this._httpReq.abort();
 	      }
-	    } }]);return AppRouter;}();
+	    } }]);return PlayRouter;}();
 
 	var PlayFSM = machina.Fsm.extend({
 	  initialize: function initialize(opts) {
@@ -25333,103 +25608,102 @@
 	    init: {
 	      _onEnter: function _onEnter() {
 	        debug('init _onEnter()');var _play =
-	        this._play,_appId = _play._appId,_insecure = _play._insecure,_feature = _play._feature;
-	        this._appRouter = new AppRouter(_appId);
+	        this._play,_appId = _play._appId,_insecure = _play._insecure,_feature = _play._feature,_playServer = _play._playServer;
+	        this._playRouter = new PlayRouter(_appId, _playServer);
 	        this._router = new LobbyRouter({
 	          appId: _appId,
 	          insecure: _insecure,
 	          feature: _feature });
 
+	      },
+
+	      onTransition: function onTransition(nextState) {
+	        if (nextState === 'connecting' || nextState === 'close') {
+	          this.transition(nextState);
+	        } else {
+	          throw new Error('Error transition: from init to ' + nextState);
+	        }
+	      },
+
+	      connect: function connect() {var _this = this;
+	        this.handle('onTransition', 'connecting');
 	        this._lobbyConn = new LobbyConnection();
 	        this._gameConn = new GameConnection();
+	        return this._connectLobby().then(
+	        tap(function () {return _this.handle('onTransition', 'lobby');}));
+
 	      },
 
-	      connect: function connect() {
-	        return this._connect();
-	      },
-
-	      reconnectAndRejoin: function reconnectAndRejoin() {var _this = this;
-	        return new _Promise(function () {var _ref = _asyncToGenerator( /*#__PURE__*/regenerator.mark(function _callee(resolve, reject) {return regenerator.wrap(function _callee$(_context) {while (1) {switch (_context.prev = _context.next) {case 0:_context.prev = 0;_context.next = 3;return (
-
-	                      _this._connect());case 3:_context.next = 5;return (
-	                      _this._joinRoom(_this._play._lastRoomId));case 5:
-	                    resolve();_context.next = 11;break;case 8:_context.prev = 8;_context.t0 = _context['catch'](0);
-
-	                    reject(_context.t0);case 11:case 'end':return _context.stop();}}}, _callee, _this, [[0, 8]]);}));return function (_x, _x2) {return _ref.apply(this, arguments);};}());
-
+	      '*': function _(evt) {var
+	        inputType = evt.inputType;
+	        throw new PlayError(
+	        PlayErrorCode.STATE_ERROR, 'you cannot call ' +
+	        inputType + ' on init state');
 
 	      } },
 
 
-	    // 连接 Router 状态
 	    connecting: {
-	      _onEnter: function _onEnter() {var _this2 = this;
-	        debug(this._play._userId + ' connecting _onEnter()');
-	        this._lobbyConn.on('ERROR_EVENT', function (_ref2) {var code = _ref2.code,detail = _ref2.detail;
-	          debug('lobby connection error event');
-	          _this2._play.emit(Event.ERROR, {
-	            code: code,
-	            detail: detail });
-
-	        });
+	      onTransition: function onTransition(nextState) {
+	        if (
+	        nextState === 'lobby' ||
+	        nextState === 'disconnect' ||
+	        nextState === 'close')
+	        {
+	          this.transition(nextState);
+	        } else {
+	          throw new Error('Error transition: from connecting to ' + nextState);
+	        }
 	      },
-	      reset: function reset() {var _this3 = this;
-	        return new _Promise(function (resolve, reject) {
-	          try {
-	            _this3._appRouter.abort();
-	            _this3._router.abort();
-	            _this3.transition('init');
-	            resolve();
-	          } catch (err) {
-	            reject(err);
-	          }
-	        });
-	      } },
 
+	      connect: function connect() {},
 
-	    // 连接 Lobby 状态
-	    lobbyConnecting: {
-	      reset: function reset() {var _this4 = this;
-	        return new _Promise(function () {var _ref3 = _asyncToGenerator( /*#__PURE__*/regenerator.mark(function _callee2(resolve, reject) {return regenerator.wrap(function _callee2$(_context2) {while (1) {switch (_context2.prev = _context2.next) {case 0:_context2.prev = 0;_context2.next = 3;return (
+	      close: function close() {
+	        this.transition('close');
+	      },
 
-	                      _this4._lobbyConn.close());case 3:
-	                    _this4.transition('init');
-	                    resolve();_context2.next = 10;break;case 7:_context2.prev = 7;_context2.t0 = _context2['catch'](0);
-
-	                    reject(_context2.t0);case 10:case 'end':return _context2.stop();}}}, _callee2, _this4, [[0, 7]]);}));return function (_x3, _x4) {return _ref3.apply(this, arguments);};}());
-
+	      '*': function _(evt) {var
+	        inputType = evt.inputType;
+	        throw new PlayError(
+	        PlayErrorCode.STATE_ERROR, 'you cannot call ' +
+	        inputType + ' on connecting state');
 
 	      } },
 
 
-	    lobbyOpening: {
-	      reset: function reset() {var _this5 = this;
-	        return new _Promise(function () {var _ref4 = _asyncToGenerator( /*#__PURE__*/regenerator.mark(function _callee3(resolve, reject) {return regenerator.wrap(function _callee3$(_context3) {while (1) {switch (_context3.prev = _context3.next) {case 0:_context3.prev = 0;_context3.next = 3;return (
-
-	                      _this5._lobbyConn.close());case 3:
-	                    _this5.transition('init');
-	                    resolve();_context3.next = 10;break;case 7:_context3.prev = 7;_context3.t0 = _context3['catch'](0);
-
-	                    reject(_context3.t0);case 10:case 'end':return _context3.stop();}}}, _callee3, _this5, [[0, 7]]);}));return function (_x5, _x6) {return _ref4.apply(this, arguments);};}());
-
-
-	      } },
+	    lobby: {
+	      _onEnter: function _onEnter() {var _this2 = this;
+	        debug('lobby _onEnter()');
+	        this._lobbyConn.on(ERROR_EVENT, function () {var _ref2 = _asyncToGenerator( /*#__PURE__*/regenerator.mark(function _callee(_ref) {var code = _ref.code,detail = _ref.detail;return regenerator.wrap(function _callee$(_context) {while (1) {switch (_context.prev = _context.next) {case 0:
+	                    _this2._lobbyConn.close();
+	                    _this2._play.emit(Event.ERROR, {
+	                      code: code,
+	                      detail: detail });case 2:case 'end':return _context.stop();}}}, _callee, _this2);}));return function (_x) {return _ref2.apply(this, arguments);};}());
 
 
-	    lobbyConnected: {
-	      _onEnter: function _onEnter() {var _this6 = this;
-	        debug('lobbyConnected _onEnter()');
 	        this._lobbyConn.on(ROOM_LIST_UPDATED_EVENT, function (roomList) {
-	          _this6._play._lobbyRoomList = roomList;
-	          _this6._play.emit(Event.LOBBY_ROOM_LIST_UPDATED);
+	          _this2._play._lobbyRoomList = roomList;
+	          _this2._play.emit(Event.LOBBY_ROOM_LIST_UPDATED);
 	        });
 	        this._lobbyConn.on(DISCONNECT_EVENT, function () {
-	          _this6._play.emit(Event.DISCONNECTED);
+	          _this2.handle('onTransition', 'disconnect');
 	        });
 	      },
 
 	      _onExit: function _onExit() {
 	        this._lobbyConn.removeAllListeners();
+	      },
+
+	      onTransition: function onTransition(nextState) {
+	        if (
+	        nextState === 'lobbyToGame' ||
+	        nextState === 'disconnect' ||
+	        nextState === 'close')
+	        {
+	          this.transition(nextState);
+	        } else {
+	          throw new Error('Error transition: from lobby to ' + nextState);
+	        }
 	      },
 
 	      joinLobby: function joinLobby() {
@@ -25460,450 +25734,693 @@
 	        return this._rejoinRoom(roomName);
 	      },
 
-	      disconnect: function disconnect() {var _this7 = this;
-	        debug(this._play._userId + ' disconnect lobby');
-	        return new _Promise(function () {var _ref5 = _asyncToGenerator( /*#__PURE__*/regenerator.mark(function _callee4(resolve, reject) {return regenerator.wrap(function _callee4$(_context4) {while (1) {switch (_context4.prev = _context4.next) {case 0:_context4.prev = 0;_context4.next = 3;return (
-
-	                      _this7._lobbyConn.close());case 3:
-	                    _this7.transition('init');
-	                    resolve();_context4.next = 10;break;case 7:_context4.prev = 7;_context4.t0 = _context4['catch'](0);
-
-	                    reject(_context4.t0);case 10:case 'end':return _context4.stop();}}}, _callee4, _this7, [[0, 7]]);}));return function (_x7, _x8) {return _ref5.apply(this, arguments);};}());
-
+	      matchRandom: function matchRandom(piggybackPeerId, matchProperties, expectedUserIds) {
+	        return this._lobbyConn.matchRandom(
+	        piggybackPeerId,
+	        matchProperties,
+	        expectedUserIds);
 
 	      },
 
-	      reset: function reset() {var _this8 = this;
-	        return new _Promise(function () {var _ref6 = _asyncToGenerator( /*#__PURE__*/regenerator.mark(function _callee5(resolve, reject) {return regenerator.wrap(function _callee5$(_context5) {while (1) {switch (_context5.prev = _context5.next) {case 0:_context5.prev = 0;_context5.next = 3;return (
-
-	                      _this8._lobbyConn.close());case 3:
-	                    _this8.transition('init');
-	                    resolve();_context5.next = 10;break;case 7:_context5.prev = 7;_context5.t0 = _context5['catch'](0);
-
-	                    reject(_context5.t0);case 10:case 'end':return _context5.stop();}}}, _callee5, _this8, [[0, 7]]);}));return function (_x9, _x10) {return _ref6.apply(this, arguments);};}());
-
-
-	      } },
-
-
-	    gameConnecting: {
-	      _onEnter: function _onEnter() {var _this9 = this;
-	        debug('gameConnecting _onEnter()');
-	        this._gameConn.on(ERROR_EVENT, function () {var _ref8 = _asyncToGenerator( /*#__PURE__*/regenerator.mark(function _callee6(_ref7) {var code = _ref7.code,detail = _ref7.detail;return regenerator.wrap(function _callee6$(_context6) {while (1) {switch (_context6.prev = _context6.next) {case 0:_context6.next = 2;return (
-	                      _this9._gameConn.close());case 2:
-	                    _this9._play.emit(Event.ERROR, {
-	                      code: code,
-	                      detail: detail });case 3:case 'end':return _context6.stop();}}}, _callee6, _this9);}));return function (_x11) {return _ref8.apply(this, arguments);};}());
-
+	      close: function close() {var _this3 = this;
+	        return new _Promise(function () {var _ref3 = _asyncToGenerator( /*#__PURE__*/regenerator.mark(function _callee2(resolve, reject) {return regenerator.wrap(function _callee2$(_context2) {while (1) {switch (_context2.prev = _context2.next) {case 0:
+	                    try {
+	                      _this3._lobbyConn.close();
+	                      _this3.transition('close');
+	                      resolve();
+	                    } catch (err) {
+	                      reject(err);
+	                    }case 1:case 'end':return _context2.stop();}}}, _callee2, _this3);}));return function (_x2, _x3) {return _ref3.apply(this, arguments);};}());
 
 	      },
 
-	      reset: function reset() {var _this10 = this;
-	        return new _Promise(function () {var _ref9 = _asyncToGenerator( /*#__PURE__*/regenerator.mark(function _callee7(resolve, reject) {return regenerator.wrap(function _callee7$(_context7) {while (1) {switch (_context7.prev = _context7.next) {case 0:_context7.prev = 0;_context7.next = 3;return (
+	      pauseMessageQueue: function pauseMessageQueue() {
+	        this._lobbyConn._pauseMessageQueue();
+	      },
 
-	                      _this10._gameConn.close());case 3:
-	                    _this10.transition('init');
-	                    resolve();_context7.next = 10;break;case 7:_context7.prev = 7;_context7.t0 = _context7['catch'](0);
+	      resumeMessageQueue: function resumeMessageQueue() {
+	        this._lobbyConn._resumeMessageQueue();
+	      },
 
-	                    reject(_context7.t0);case 10:case 'end':return _context7.stop();}}}, _callee7, _this10, [[0, 7]]);}));return function (_x12, _x13) {return _ref9.apply(this, arguments);};}());
+	      _simulateDisconnection: function _simulateDisconnection() {
+	        this._lobbyConn._simulateDisconnection();
+	      },
 
-
-	      } },
-
-
-	    gameOpening: {
-	      reset: function reset() {var _this11 = this;
-	        return new _Promise(function () {var _ref10 = _asyncToGenerator( /*#__PURE__*/regenerator.mark(function _callee8(resolve, reject) {return regenerator.wrap(function _callee8$(_context8) {while (1) {switch (_context8.prev = _context8.next) {case 0:_context8.prev = 0;_context8.next = 3;return (
-
-	                      _this11._gameConn.close());case 3:
-	                    _this11.transition('init');
-	                    resolve();_context8.next = 10;break;case 7:_context8.prev = 7;_context8.t0 = _context8['catch'](0);
-
-	                    reject(_context8.t0);case 10:case 'end':return _context8.stop();}}}, _callee8, _this11, [[0, 7]]);}));return function (_x14, _x15) {return _ref10.apply(this, arguments);};}());
-
+	      '*': function _(evt) {var
+	        inputType = evt.inputType;
+	        throw new PlayError(
+	        PlayErrorCode.STATE_ERROR, 'you cannot call ' +
+	        inputType + ' on lobby state');
 
 	      } },
 
 
-	    gameConnected: {
-	      _onEnter: function _onEnter() {var _this12 = this;
-	        debug('gameConnected _onEnter()');
+	    lobbyToGame: {
+	      onTransition: function onTransition(nextState) {
+	        if (
+	        nextState === 'lobby' ||
+	        nextState === 'game' ||
+	        nextState === 'disconnect' ||
+	        nextState === 'close')
+	        {
+	          this.transition(nextState);
+	        } else {
+	          throw new Error('Error transition: from lobbyToGame to ' + nextState);
+	        }
+	      },
+
+	      close: function close() {
+	        this.transition('close');
+	      },
+
+	      '*': function _(evt) {var
+	        inputType = evt.inputType;
+	        throw new PlayError(
+	        PlayErrorCode.STATE_ERROR, 'you cannot call ' +
+	        inputType + ' on lobbyToGame state');
+
+	      } },
+
+
+	    game: {
+	      _onEnter: function _onEnter() {var _this4 = this;
+	        debug('game _onEnter()');
 	        // 为 reconnectAndRejoin() 保存房间 id
 	        this._play._lastRoomId = this._play.room.name;
+	        // 注册事件
+	        this._gameConn.on(ERROR_EVENT, function () {var _ref5 = _asyncToGenerator( /*#__PURE__*/regenerator.mark(function _callee3(_ref4) {var code = _ref4.code,detail = _ref4.detail;return regenerator.wrap(function _callee3$(_context3) {while (1) {switch (_context3.prev = _context3.next) {case 0:
+	                    _this4._gameConn.close();
+	                    _this4._play.emit(Event.ERROR, {
+	                      code: code,
+	                      detail: detail });case 2:case 'end':return _context3.stop();}}}, _callee3, _this4);}));return function (_x4) {return _ref5.apply(this, arguments);};}());
+
+
 	        this._gameConn.on(PLAYER_JOINED_EVENT, function (newPlayer) {
-	          _this12._play._room._addPlayer(newPlayer);
-	          _this12._play.emit(Event.PLAYER_ROOM_JOINED, {
+	          _this4._play._room._addPlayer(newPlayer);
+	          _this4._play.emit(Event.PLAYER_ROOM_JOINED, {
 	            newPlayer: newPlayer });
 
 	        });
 	        this._gameConn.on(PLAYER_LEFT_EVENT, function (actorId) {
-	          var leftPlayer = _this12._play._room.getPlayer(actorId);
-	          _this12._play._room._removePlayer(actorId);
-	          _this12._play.emit(Event.PLAYER_ROOM_LEFT, {
+	          var leftPlayer = _this4._play._room.getPlayer(actorId);
+	          _this4._play._room._removePlayer(actorId);
+	          _this4._play.emit(Event.PLAYER_ROOM_LEFT, {
 	            leftPlayer: leftPlayer });
 
 	        });
 	        this._gameConn.on(MASTER_CHANGED_EVENT, function (newMasterActorId) {
 	          var newMaster = null;
-	          _this12._play._room._masterActorId = newMasterActorId;
+	          _this4._play._room._masterActorId = newMasterActorId;
 	          if (newMasterActorId > -1) {
-	            newMaster = _this12._play._room.getPlayer(newMasterActorId);
+	            newMaster = _this4._play._room.getPlayer(newMasterActorId);
 	          }
-	          _this12._play.emit(Event.MASTER_SWITCHED, {
+	          _this4._play.emit(Event.MASTER_SWITCHED, {
 	            newMaster: newMaster });
 
 	        });
 	        this._gameConn.on(ROOM_OPEN_CHANGED_EVENT, function (open) {
-	          _this12._play.emit(Event.ROOM_OPEN_CHANGED, {
-	            opened: open });
+	          _this4._play._room._open = open;
+	          _this4._play.emit(Event.ROOM_OPEN_CHANGED, {
+	            open: open });
 
 	        });
 	        this._gameConn.on(ROOM_VISIBLE_CHANGED_EVENT, function (visible) {
-	          _this12._play.emit(Event.ROOM_VISIBLE_CHANGED, {
+	          _this4._play._room._visible = visible;
+	          _this4._play.emit(Event.ROOM_VISIBLE_CHANGED, {
 	            visible: visible });
 
 	        });
 	        this._gameConn.on(ROOM_PROPERTIES_CHANGED_EVENT, function (changedProps) {
-	          _this12._play._room._mergeProperties(changedProps);
-	          _this12._play.emit(Event.ROOM_CUSTOM_PROPERTIES_CHANGED, {
+	          _this4._play._room._mergeProperties(changedProps);
+	          _this4._play.emit(Event.ROOM_CUSTOM_PROPERTIES_CHANGED, {
 	            changedProps: changedProps });
 
 	        });
 	        this._gameConn.on(
+	        ROOM_SYSTEM_PROPERTIES_CHANGED_EVENT,
+	        function (changedProps) {
+	          _this4._play._room._mergeSystemProps(changedProps);
+	          _this4._play.emit(Event.ROOM_SYSTEM_PROPERTIES_CHANGED, {
+	            changedProps: changedProps });
+
+	        });
+
+	        this._gameConn.on(
 	        PLAYER_PROPERTIES_CHANGED_EVENT,
 	        function (actorId, changedProps) {
-	          var player = _this12._play._room.getPlayer(actorId);
+	          var player = _this4._play._room.getPlayer(actorId);
 	          player._mergeProperties(changedProps);
-	          _this12._play.emit(Event.PLAYER_CUSTOM_PROPERTIES_CHANGED, {
+	          _this4._play.emit(Event.PLAYER_CUSTOM_PROPERTIES_CHANGED, {
 	            player: player,
 	            changedProps: changedProps });
 
 	        });
 
 	        this._gameConn.on(PLAYER_OFFLINE_EVENT, function (actorId) {
-	          var player = _this12._play._room.getPlayer(actorId);
+	          var player = _this4._play._room.getPlayer(actorId);
 	          player._setActive(false);
-	          _this12._play.emit(Event.PLAYER_ACTIVITY_CHANGED, {
+	          _this4._play.emit(Event.PLAYER_ACTIVITY_CHANGED, {
 	            player: player });
 
 	        });
 	        this._gameConn.on(PLAYER_ONLINE_EVENT, function (player) {
-	          var p = _this12._play._room.getPlayer(player.actorId);
+	          var p = _this4._play._room.getPlayer(player.actorId);
 	          _Object$assign(p, player);
 	          p._setActive(true);
-	          _this12._play.emit(Event.PLAYER_ACTIVITY_CHANGED, {
+	          _this4._play.emit(Event.PLAYER_ACTIVITY_CHANGED, {
 	            player: p });
 
 	        });
 	        this._gameConn.on(SEND_CUSTOM_EVENT, function (eventId, eventData, senderId) {
-	          _this12._play.emit(Event.CUSTOM_EVENT, {
+	          _this4._play.emit(Event.CUSTOM_EVENT, {
 	            eventId: eventId,
 	            eventData: eventData,
 	            senderId: senderId });
 
 	        });
 	        this._gameConn.on(DISCONNECT_EVENT, function () {
-	          _this12._play.emit(Event.DISCONNECTED);
+	          _this4.handle('onTransition', 'disconnect');
 	        });
+	        this._gameConn.on(ROOM_KICKED_EVENT, function () {var _ref6 = _asyncToGenerator( /*#__PURE__*/regenerator.mark(function _callee4(code, msg) {return regenerator.wrap(function _callee4$(_context4) {while (1) {switch (_context4.prev = _context4.next) {case 0:
+	                    _this4.handle('onTransition', 'gameToLobby');
+	                    _this4._gameConn.close();_context4.next = 4;return (
+	                      _this4._connectLobby());case 4:
+	                    _this4.handle('onTransition', 'lobby');
+	                    _this4._play.emit(Event.ROOM_KICKED, { code: code, msg: msg });case 6:case 'end':return _context4.stop();}}}, _callee4, _this4);}));return function (_x5, _x6) {return _ref6.apply(this, arguments);};}());
+
 	      },
 
 	      _onExit: function _onExit() {
 	        this._gameConn.removeAllListeners();
 	      },
 
-	      leaveRoom: function leaveRoom() {var _this13 = this;
-	        return new _Promise(function () {var _ref11 = _asyncToGenerator( /*#__PURE__*/regenerator.mark(function _callee9(resolve, reject) {return regenerator.wrap(function _callee9$(_context9) {while (1) {switch (_context9.prev = _context9.next) {case 0:_context9.prev = 0;_context9.next = 3;return (
+	      onTransition: function onTransition(nextState) {
+	        if (
+	        nextState === 'gameToLobby' ||
+	        nextState === 'disconnect' ||
+	        nextState === 'close')
+	        {
+	          this.transition(nextState);
+	        } else {
+	          throw new Error('Error transition: from game to ' + nextState);
+	        }
+	      },
 
-	                      _this13._gameConn.leaveRoom());case 3:_context9.next = 5;return (
-	                      _this13._gameConn.close());case 5:_context9.next = 7;return (
-	                      _this13._connectLobby());case 7:
-	                    resolve();_context9.next = 13;break;case 10:_context9.prev = 10;_context9.t0 = _context9['catch'](0);
+	      leaveRoom: function leaveRoom() {var _this5 = this;
+	        this.handle('onTransition', 'gameToLobby');
+	        return new _Promise(function () {var _ref7 = _asyncToGenerator( /*#__PURE__*/regenerator.mark(function _callee5(resolve, reject) {return regenerator.wrap(function _callee5$(_context5) {while (1) {switch (_context5.prev = _context5.next) {case 0:_context5.prev = 0;_context5.next = 3;return (
 
-	                    reject(_context9.t0);case 13:case 'end':return _context9.stop();}}}, _callee9, _this13, [[0, 10]]);}));return function (_x16, _x17) {return _ref11.apply(this, arguments);};}());
+	                      _this5._gameConn.leaveRoom());case 3:
+	                    _this5._gameConn.close();_context5.next = 6;return (
+	                      _this5._connectLobby().then(
+	                      tap(function () {
+	                        _this5.handle('onTransition', 'lobby');
+	                      })));case 6:
+
+	                    resolve();_context5.next = 12;break;case 9:_context5.prev = 9;_context5.t0 = _context5['catch'](0);
+
+	                    reject(_context5.t0);case 12:case 'end':return _context5.stop();}}}, _callee5, _this5, [[0, 9]]);}));return function (_x7, _x8) {return _ref7.apply(this, arguments);};}());
 
 
 	      },
 
-	      setRoomOpened: function setRoomOpened(opened) {
-	        return this._gameConn.setRoomOpened(opened);
+	      setRoomOpen: function setRoomOpen(open) {var _this6 = this;
+	        return this._gameConn.setRoomOpen(open).then(
+	        tap(function (res) {var
+	          sysAttr = res.sysAttr;
+	          _this6._play._room._mergeSystemProps(sysAttr);
+	        }));
+
 	      },
 
-	      setRoomVisible: function setRoomVisible(visible) {
-	        return this._gameConn.setRoomVisible(visible);
+	      setRoomVisible: function setRoomVisible(visible) {var _this7 = this;
+	        return this._gameConn.setRoomVisible(visible).then(
+	        tap(function (res) {var
+	          sysAttr = res.sysAttr;
+	          _this7._play._room._mergeSystemProps(sysAttr);
+	        }));
+
 	      },
 
-	      setMaster: function setMaster(newMasterId) {
-	        return this._gameConn.setMaster(newMasterId);
+	      setRoomMaxPlayerCount: function setRoomMaxPlayerCount(count) {var _this8 = this;
+	        return this._gameConn.setRoomMaxPlayerCount(count).then(
+	        tap(function (res) {var
+	          sysAttr = res.sysAttr;
+	          _this8._play._room._mergeSystemProps(sysAttr);
+	        }));
+
+	      },
+
+	      setRoomExpectedUserIds: function setRoomExpectedUserIds(expectedUserIds) {var _this9 = this;
+	        return this._gameConn.setRoomExpectedUserIds(expectedUserIds).then(
+	        tap(function (res) {var
+	          sysAttr = res.sysAttr;
+	          _this9._play._room._mergeSystemProps(sysAttr);
+	        }));
+
+	      },
+
+	      clearRoomExpectedUserIds: function clearRoomExpectedUserIds() {var _this10 = this;
+	        return this._gameConn.clearRoomExpectedUserIds().then(
+	        tap(function (res) {var
+	          sysAttr = res.sysAttr;
+	          _this10._play._room._mergeSystemProps(sysAttr);
+	        }));
+
+	      },
+
+	      addRoomExpectedUserIds: function addRoomExpectedUserIds(expectedUserIds) {var _this11 = this;
+	        return this._gameConn.addRoomExpectedUserIds(expectedUserIds).then(
+	        tap(function (res) {var
+	          sysAttr = res.sysAttr;
+	          _this11._play._room._mergeSystemProps(sysAttr);
+	        }));
+
+	      },
+
+	      removeRoomExpectedUserIds: function removeRoomExpectedUserIds(expectedUserIds) {var _this12 = this;
+	        return this._gameConn.removeRoomExpectedUserIds(expectedUserIds).then(
+	        tap(function (res) {var
+	          sysAttr = res.sysAttr;
+	          _this12._play._room._mergeSystemProps(sysAttr);
+	        }));
+
+	      },
+
+	      setMaster: function setMaster(newMasterId) {var _this13 = this;
+	        return this._gameConn.setMaster(newMasterId).then(
+	        tap(function (res) {var
+	          masterActorId = res.masterActorId;
+	          _this13._play._room._masterActorId = masterActorId;
+	        }));
+
+	      },
+
+	      kickPlayer: function kickPlayer(actorId, code, msg) {var _this14 = this;
+	        return this._gameConn.kickPlayer(actorId, code, msg).then(
+	        tap(function (res) {var
+	          targetActorId = res.targetActorId;
+	          _this14._play._room._removePlayer(targetActorId);
+	        }));
+
 	      },
 
 	      sendEvent: function sendEvent(eventId, eventData, options) {
 	        return this._gameConn.sendEvent(eventId, eventData, options);
 	      },
 
-	      setRoomCustomProperties: function setRoomCustomProperties(properties, expectedValues) {
-	        return this._gameConn.setRoomCustomProperties(
-	        properties,
-	        expectedValues);
+	      setRoomCustomProperties: function setRoomCustomProperties(properties, expectedValues) {var _this15 = this;
+	        return this._gameConn.
+	        setRoomCustomProperties(properties, expectedValues).
+	        then(
+	        tap(function (res) {var
+	          attr = res.attr;
+	          if (attr) {
+	            // 如果属性没变化，服务端则不会下发 attr 属性
+	            _this15._play._room._mergeProperties(attr);
+	          }
+	        }));
 
 	      },
 
-	      setPlayerCustomProperties: function setPlayerCustomProperties(actorId, properties, expectedValues) {
-	        return this._gameConn.setPlayerCustomProperties(
-	        actorId,
-	        properties,
-	        expectedValues);
+	      setPlayerCustomProperties: function setPlayerCustomProperties(actorId, properties, expectedValues) {var _this16 = this;
+	        return this._gameConn.
+	        setPlayerCustomProperties(actorId, properties, expectedValues).
+	        then(
+	        tap(function (res) {var
+	          aId = res.actorId,attr = res.attr;
+	          if (aId && attr) {
+	            var player = _this16._play._room.getPlayer(aId);
+	            player._mergeProperties(attr);
+	          }
+	        }));
 
 	      },
 
-	      disconnect: function disconnect() {var _this14 = this;
-	        debug(this._play._userId + ' disconnect game');
-	        return new _Promise(function () {var _ref12 = _asyncToGenerator( /*#__PURE__*/regenerator.mark(function _callee10(resolve, reject) {return regenerator.wrap(function _callee10$(_context10) {while (1) {switch (_context10.prev = _context10.next) {case 0:_context10.prev = 0;_context10.next = 3;return (
+	      close: function close() {var _this17 = this;
+	        return new _Promise(function () {var _ref8 = _asyncToGenerator( /*#__PURE__*/regenerator.mark(function _callee6(resolve, reject) {return regenerator.wrap(function _callee6$(_context6) {while (1) {switch (_context6.prev = _context6.next) {case 0:
+	                    try {
+	                      _this17._gameConn.close();
+	                      _this17.transition('close');
+	                      resolve();
+	                    } catch (err) {
+	                      reject(err);
+	                    }case 1:case 'end':return _context6.stop();}}}, _callee6, _this17);}));return function (_x9, _x10) {return _ref8.apply(this, arguments);};}());
 
-	                      _this14._gameConn.close());case 3:
-	                    _this14.transition('init');
-	                    resolve();
-	                    _this14._play.emit(Event.DISCONNECTED);_context10.next = 11;break;case 8:_context10.prev = 8;_context10.t0 = _context10['catch'](0);
+	      },
 
-	                    reject(_context10.t0);case 11:case 'end':return _context10.stop();}}}, _callee10, _this14, [[0, 8]]);}));return function (_x18, _x19) {return _ref12.apply(this, arguments);};}());
+	      pauseMessageQueue: function pauseMessageQueue() {
+	        this._gameConn._pauseMessageQueue();
+	      },
+
+	      resumeMessageQueue: function resumeMessageQueue() {
+	        this._gameConn._resumeMessageQueue();
+	      },
+
+	      _simulateDisconnection: function _simulateDisconnection() {
+	        this._gameConn._simulateDisconnection();
+	      },
+
+	      '*': function _(evt) {var
+	        inputType = evt.inputType;
+	        throw new PlayError(
+	        PlayErrorCode.STATE_ERROR, 'you cannot call ' +
+	        inputType + ' on game state');
+
+	      } },
+
+
+	    gameToLobby: {
+	      onTransition: function onTransition(nextState) {
+	        if (
+	        nextState === 'lobby' ||
+	        nextState === 'game' ||
+	        nextState === 'disconnect' ||
+	        nextState === 'close')
+	        {
+	          this.transition(nextState);
+	        } else {
+	          throw new Error('Error transition: from gameToLobby to ' + nextState);
+	        }
+	      },
+
+	      close: function close() {
+	        this.transition('close');
+	      },
+
+	      '*': function _(evt) {var
+	        inputType = evt.inputType;
+	        throw new PlayError(
+	        PlayErrorCode.STATE_ERROR, 'you cannot call ' +
+	        inputType + ' on gameToLobby state');
+
+	      } },
+
+
+	    disconnect: {
+	      _onEnter: function _onEnter() {
+	        this._play.emit(Event.DISCONNECTED);
+	      },
+
+	      onTransition: function onTransition(nextState) {
+	        if (nextState === 'connecting' || nextState === 'close') {
+	          this.transition(nextState);
+	        } else {
+	          throw new Error('Error transition: from disconnect to ' + nextState);
+	        }
+	      },
+
+	      reconnect: function reconnect() {var _this18 = this;
+	        this.handle('onTransition', 'connecting');
+	        this._lobbyConn = new LobbyConnection();
+	        this._gameConn = new GameConnection();
+	        return this._connectLobby().then(
+	        tap(function () {return _this18.handle('onTransition', 'lobby');}));
+
+	      },
+
+	      reconnectAndRejoin: function reconnectAndRejoin() {var _this19 = this;
+	        this.handle('onTransition', 'connecting');
+	        this._lobbyConn = new LobbyConnection();
+	        this._gameConn = new GameConnection();
+	        return new _Promise(function () {var _ref9 = _asyncToGenerator( /*#__PURE__*/regenerator.mark(function _callee7(resolve, reject) {var gameRoom;return regenerator.wrap(function _callee7$(_context7) {while (1) {switch (_context7.prev = _context7.next) {case 0:_context7.prev = 0;_context7.next = 3;return (
+
+	                      _this19._connectLobby().then(
+	                      tap(function () {
+	                        _this19.handle('onTransition', 'lobby');
+	                      })));case 3:_context7.next = 5;return (
+
+	                      _this19._joinRoom(_this19._play._lastRoomId));case 5:gameRoom = _context7.sent;
+	                    resolve(gameRoom);_context7.next = 12;break;case 9:_context7.prev = 9;_context7.t0 = _context7['catch'](0);
+
+	                    reject(_context7.t0);case 12:case 'end':return _context7.stop();}}}, _callee7, _this19, [[0, 9]]);}));return function (_x11, _x12) {return _ref9.apply(this, arguments);};}());
 
 
 	      },
 
-	      reset: function reset() {var _this15 = this;
-	        return new _Promise(function () {var _ref13 = _asyncToGenerator( /*#__PURE__*/regenerator.mark(function _callee11(resolve, reject) {return regenerator.wrap(function _callee11$(_context11) {while (1) {switch (_context11.prev = _context11.next) {case 0:_context11.prev = 0;_context11.next = 3;return (
+	      close: function close() {
+	        this.transition('close');
+	      },
 
-	                      _this15._gameConn.close());case 3:
-	                    _this15.transition('init');
-	                    resolve();_context11.next = 10;break;case 7:_context11.prev = 7;_context11.t0 = _context11['catch'](0);
+	      '*': function _(evt) {var
+	        inputType = evt.inputType;
+	        throw new PlayError(
+	        PlayErrorCode.STATE_ERROR, 'you cannot call ' +
+	        inputType + ' on disconnect state');
 
-	                    reject(_context11.t0);case 10:case 'end':return _context11.stop();}}}, _callee11, _this15, [[0, 7]]);}));return function (_x20, _x21) {return _ref13.apply(this, arguments);};}());
+	      } },
 
+
+	    close: {
+	      onTransition: function onTransition(nextState) {
+	        if (nextState === 'lobby') {
+	          this._lobbyConn.close();
+	        } else if (nextState === 'game') {
+	          this._gameConn.close();
+	        }
+	      },
+
+	      '*': function _(evt) {var
+	        inputType = evt.inputType;
+	        throw new PlayError(
+	        PlayErrorCode.STATE_ERROR, 'you cannot call ' +
+	        inputType + ' on close state');
 
 	      } } },
 
 
 
-	  _connect: function _connect() {
-	    return this._connectLobby();
-	  },
+	  _createRoom: function _createRoom(roomName, roomOptions, expectedUserIds) {var _this20 = this;
+	    this.handle('onTransition', 'lobbyToGame');
+	    return new _Promise(function () {var _ref10 = _asyncToGenerator( /*#__PURE__*/regenerator.mark(function _callee8(resolve, reject) {var roomInfo, cid, addr, secureAddr, gameRoom;return regenerator.wrap(function _callee8$(_context8) {while (1) {switch (_context8.prev = _context8.next) {case 0:_context8.prev = 0;_context8.next = 3;return (
 
-	  _createRoom: function _createRoom(roomName, roomOptions, expectedUserIds) {var _this16 = this;
-	    return new _Promise(function () {var _ref14 = _asyncToGenerator( /*#__PURE__*/regenerator.mark(function _callee12(resolve, reject) {var roomInfo, cid, addr, secureAddr;return regenerator.wrap(function _callee12$(_context12) {while (1) {switch (_context12.prev = _context12.next) {case 0:_context12.prev = 0;_context12.next = 3;return (
-
-	                  _this16._lobbyConn.createRoom(
+	                  _this20._lobbyConn.createRoom(
 	                  roomName,
 	                  roomOptions,
-	                  expectedUserIds));case 3:roomInfo = _context12.sent;
+	                  expectedUserIds));case 3:roomInfo = _context8.sent;
 
-	                cid = roomInfo.cid, addr = roomInfo.addr, secureAddr = roomInfo.secureAddr;_context12.next = 7;return (
-	                  _this16._connectGame(addr, secureAddr));case 7:_context12.next = 9;return (
-	                  _this16._createGameRoom(cid, roomOptions, expectedUserIds));case 9:
-	                resolve();_context12.next = 16;break;case 12:_context12.prev = 12;_context12.t0 = _context12['catch'](0);
+	                cid = roomInfo.cid, addr = roomInfo.addr, secureAddr = roomInfo.secureAddr;_context8.next = 7;return (
+	                  _this20._connectGame(addr, secureAddr));case 7:_context8.next = 9;return (
+	                  _this20._createGameRoom(
+	                  cid,
+	                  roomOptions,
+	                  expectedUserIds));case 9:gameRoom = _context8.sent;
 
-	                _this16.transition('lobbyConnected');
-	                reject(_context12.t0);case 16:case 'end':return _context12.stop();}}}, _callee12, _this16, [[0, 12]]);}));return function (_x22, _x23) {return _ref14.apply(this, arguments);};}());
+	                _this20.handle('onTransition', 'game');
+	                resolve(gameRoom);_context8.next = 18;break;case 14:_context8.prev = 14;_context8.t0 = _context8['catch'](0);
+
+	                _this20.handle('onTransition', 'lobby');
+	                reject(_context8.t0);case 18:case 'end':return _context8.stop();}}}, _callee8, _this20, [[0, 14]]);}));return function (_x13, _x14) {return _ref10.apply(this, arguments);};}());
 
 
 	  },
 
-	  _joinRoom: function _joinRoom(roomName, expectedUserIds) {var _this17 = this;
-	    return new _Promise(function () {var _ref15 = _asyncToGenerator( /*#__PURE__*/regenerator.mark(function _callee13(resolve, reject) {var roomInfo, cid, addr, secureAddr;return regenerator.wrap(function _callee13$(_context13) {while (1) {switch (_context13.prev = _context13.next) {case 0:_context13.prev = 0;_context13.next = 3;return (
+	  _joinRoom: function _joinRoom(roomName, expectedUserIds) {var _this21 = this;
+	    this.handle('onTransition', 'lobbyToGame');
+	    return new _Promise(function () {var _ref11 = _asyncToGenerator( /*#__PURE__*/regenerator.mark(function _callee9(resolve, reject) {var roomInfo, cid, addr, secureAddr, gameRoom;return regenerator.wrap(function _callee9$(_context9) {while (1) {switch (_context9.prev = _context9.next) {case 0:_context9.prev = 0;_context9.next = 3;return (
 
-	                  _this17._lobbyConn.joinRoom(
+	                  _this21._lobbyConn.joinRoom(
 	                  roomName,
-	                  expectedUserIds));case 3:roomInfo = _context13.sent;
+	                  expectedUserIds));case 3:roomInfo = _context9.sent;
 
-	                cid = roomInfo.cid, addr = roomInfo.addr, secureAddr = roomInfo.secureAddr;_context13.next = 7;return (
-	                  _this17._connectGame(addr, secureAddr));case 7:_context13.next = 9;return (
-	                  _this17._joinGameRoom(cid, expectedUserIds));case 9:
-	                resolve();_context13.next = 16;break;case 12:_context13.prev = 12;_context13.t0 = _context13['catch'](0);
+	                cid = roomInfo.cid, addr = roomInfo.addr, secureAddr = roomInfo.secureAddr;_context9.next = 7;return (
+	                  _this21._connectGame(addr, secureAddr));case 7:_context9.next = 9;return (
+	                  _this21._joinGameRoom(cid, expectedUserIds));case 9:gameRoom = _context9.sent;
+	                _this21.handle('onTransition', 'game');
+	                resolve(gameRoom);_context9.next = 18;break;case 14:_context9.prev = 14;_context9.t0 = _context9['catch'](0);
 
-	                _this17.transition('lobbyConnected');
-	                reject(_context13.t0);case 16:case 'end':return _context13.stop();}}}, _callee13, _this17, [[0, 12]]);}));return function (_x24, _x25) {return _ref15.apply(this, arguments);};}());
+	                _this21.handle('onTransition', 'lobby');
+	                reject(_context9.t0);case 18:case 'end':return _context9.stop();}}}, _callee9, _this21, [[0, 14]]);}));return function (_x15, _x16) {return _ref11.apply(this, arguments);};}());
 
 
 	  },
 
-	  _joinOrCreateRoom: function _joinOrCreateRoom(roomName, roomOptions, expectedUserIds) {var _this18 = this;
-	    return new _Promise(function () {var _ref16 = _asyncToGenerator( /*#__PURE__*/regenerator.mark(function _callee14(resolve, reject) {var roomInfo, op, cid, addr, secureAddr;return regenerator.wrap(function _callee14$(_context14) {while (1) {switch (_context14.prev = _context14.next) {case 0:_context14.prev = 0;_context14.next = 3;return (
+	  _joinOrCreateRoom: function _joinOrCreateRoom(roomName, roomOptions, expectedUserIds) {var _this22 = this;
+	    this.handle('onTransition', 'lobbyToGame');
+	    return new _Promise(function () {var _ref12 = _asyncToGenerator( /*#__PURE__*/regenerator.mark(function _callee10(resolve, reject) {var roomInfo, op, cid, addr, secureAddr, gameRoom;return regenerator.wrap(function _callee10$(_context10) {while (1) {switch (_context10.prev = _context10.next) {case 0:_context10.prev = 0;_context10.next = 3;return (
 
-	                  _this18._lobbyConn.joinOrCreateRoom(
+	                  _this22._lobbyConn.joinOrCreateRoom(
 	                  roomName,
 	                  roomOptions,
-	                  expectedUserIds));case 3:roomInfo = _context14.sent;
+	                  expectedUserIds));case 3:roomInfo = _context10.sent;
 
-	                op = roomInfo.op, cid = roomInfo.cid, addr = roomInfo.addr, secureAddr = roomInfo.secureAddr;_context14.next = 7;return (
-	                  _this18._connectGame(addr, secureAddr));case 7:if (!(
-	                op === 'started')) {_context14.next = 13;break;}_context14.next = 10;return (
-	                  _this18._createGameRoom(cid, roomOptions, expectedUserIds));case 10:
-	                resolve();_context14.next = 16;break;case 13:_context14.next = 15;return (
+	                op = roomInfo.op, cid = roomInfo.cid, addr = roomInfo.addr, secureAddr = roomInfo.secureAddr;_context10.next = 7;return (
+	                  _this22._connectGame(addr, secureAddr));case 7:
+	                gameRoom = null;if (!(
+	                op === 'started')) {_context10.next = 14;break;}_context10.next = 11;return (
+	                  _this22._createGameRoom(
+	                  cid,
+	                  roomOptions,
+	                  expectedUserIds));case 11:gameRoom = _context10.sent;_context10.next = 17;break;case 14:_context10.next = 16;return (
 
-	                  _this18._joinGameRoom(cid, expectedUserIds));case 15:
-	                resolve();case 16:_context14.next = 22;break;case 18:_context14.prev = 18;_context14.t0 = _context14['catch'](0);
 
+	                  _this22._joinGameRoom(cid, expectedUserIds));case 16:gameRoom = _context10.sent;case 17:
 
-	                _this18.transition('lobbyConnected');
-	                reject(_context14.t0);case 22:case 'end':return _context14.stop();}}}, _callee14, _this18, [[0, 18]]);}));return function (_x26, _x27) {return _ref16.apply(this, arguments);};}());
+	                _this22.handle('onTransition', 'game');
+	                resolve(gameRoom);_context10.next = 25;break;case 21:_context10.prev = 21;_context10.t0 = _context10['catch'](0);
+
+	                _this22.handle('onTransition', 'lobby');
+	                reject(_context10.t0);case 25:case 'end':return _context10.stop();}}}, _callee10, _this22, [[0, 21]]);}));return function (_x17, _x18) {return _ref12.apply(this, arguments);};}());
 
 
 	  },
 
-	  _joinRandomRoom: function _joinRandomRoom(matchProperties, expectedUserIds) {var _this19 = this;
-	    this.transition('gameConnecting');
-	    return new _Promise(function () {var _ref17 = _asyncToGenerator( /*#__PURE__*/regenerator.mark(function _callee15(resolve, reject) {var roomInfo, cid, addr, secureAddr;return regenerator.wrap(function _callee15$(_context15) {while (1) {switch (_context15.prev = _context15.next) {case 0:_context15.prev = 0;_context15.next = 3;return (
+	  _joinRandomRoom: function _joinRandomRoom(matchProperties, expectedUserIds) {var _this23 = this;
+	    this.handle('onTransition', 'lobbyToGame');
+	    return new _Promise(function () {var _ref13 = _asyncToGenerator( /*#__PURE__*/regenerator.mark(function _callee11(resolve, reject) {var roomInfo, cid, addr, secureAddr, gameRoom;return regenerator.wrap(function _callee11$(_context11) {while (1) {switch (_context11.prev = _context11.next) {case 0:_context11.prev = 0;_context11.next = 3;return (
 
-	                  _this19._lobbyConn.joinRandomRoom(
+	                  _this23._lobbyConn.joinRandomRoom(
 	                  matchProperties,
-	                  expectedUserIds));case 3:roomInfo = _context15.sent;
+	                  expectedUserIds));case 3:roomInfo = _context11.sent;
 
-	                cid = roomInfo.cid, addr = roomInfo.addr, secureAddr = roomInfo.secureAddr;_context15.next = 7;return (
-	                  _this19._connectGame(addr, secureAddr));case 7:_context15.next = 9;return (
-	                  _this19._joinGameRoom(cid, expectedUserIds, matchProperties));case 9:
-	                resolve();_context15.next = 16;break;case 12:_context15.prev = 12;_context15.t0 = _context15['catch'](0);
+	                cid = roomInfo.cid, addr = roomInfo.addr, secureAddr = roomInfo.secureAddr;_context11.next = 7;return (
+	                  _this23._connectGame(addr, secureAddr));case 7:_context11.next = 9;return (
+	                  _this23._joinGameRoom(
+	                  cid,
+	                  expectedUserIds,
+	                  matchProperties));case 9:gameRoom = _context11.sent;
 
-	                _this19.transition('lobbyConnected');
-	                reject(_context15.t0);case 16:case 'end':return _context15.stop();}}}, _callee15, _this19, [[0, 12]]);}));return function (_x28, _x29) {return _ref17.apply(this, arguments);};}());
+	                _this23.handle('onTransition', 'game');
+	                resolve(gameRoom);_context11.next = 18;break;case 14:_context11.prev = 14;_context11.t0 = _context11['catch'](0);
 
-
-	  },
-
-	  _rejoinRoom: function _rejoinRoom(roomName) {var _this20 = this;
-	    this.transition('gameConnecting');
-	    return new _Promise(function () {var _ref18 = _asyncToGenerator( /*#__PURE__*/regenerator.mark(function _callee16(resolve, reject) {var roomInfo, cid, addr, secureAddr;return regenerator.wrap(function _callee16$(_context16) {while (1) {switch (_context16.prev = _context16.next) {case 0:_context16.prev = 0;_context16.next = 3;return (
-
-	                  _this20._lobbyConn.rejoinRoom(roomName));case 3:roomInfo = _context16.sent;
-	                cid = roomInfo.cid, addr = roomInfo.addr, secureAddr = roomInfo.secureAddr;_context16.next = 7;return (
-	                  _this20._connectGame(addr, secureAddr));case 7:_context16.next = 9;return (
-	                  _this20._joinGameRoom(cid));case 9:
-	                resolve();_context16.next = 15;break;case 12:_context16.prev = 12;_context16.t0 = _context16['catch'](0);
-
-	                reject(_context16.t0);case 15:case 'end':return _context16.stop();}}}, _callee16, _this20, [[0, 12]]);}));return function (_x30, _x31) {return _ref18.apply(this, arguments);};}());
+	                _this23.handle('onTransition', 'lobby');
+	                reject(_context11.t0);case 18:case 'end':return _context11.stop();}}}, _callee11, _this23, [[0, 14]]);}));return function (_x19, _x20) {return _ref13.apply(this, arguments);};}());
 
 
 	  },
 
-	  _connectLobby: function _connectLobby() {var _this21 = this;
-	    this.transition('connecting');
-	    return new _Promise(function () {var _ref19 = _asyncToGenerator( /*#__PURE__*/regenerator.mark(function _callee17(resolve, reject) {var lobbyRouterUrl, lobbyServerInfo, primaryServer, secondaryServer, _play2, appId, userId, gameVersion;return regenerator.wrap(function _callee17$(_context17) {while (1) {switch (_context17.prev = _context17.next) {case 0:_context17.prev = 0;_context17.next = 3;return (
+	  _rejoinRoom: function _rejoinRoom(roomName) {var _this24 = this;
+	    this.handle('onTransition', 'lobbyToGame');
+	    return new _Promise(function () {var _ref14 = _asyncToGenerator( /*#__PURE__*/regenerator.mark(function _callee12(resolve, reject) {var roomInfo, cid, addr, secureAddr, gameRoom;return regenerator.wrap(function _callee12$(_context12) {while (1) {switch (_context12.prev = _context12.next) {case 0:_context12.prev = 0;_context12.next = 3;return (
+
+	                  _this24._lobbyConn.rejoinRoom(roomName));case 3:roomInfo = _context12.sent;
+	                cid = roomInfo.cid, addr = roomInfo.addr, secureAddr = roomInfo.secureAddr;_context12.next = 7;return (
+	                  _this24._connectGame(addr, secureAddr));case 7:_context12.next = 9;return (
+	                  _this24._joinGameRoom(cid));case 9:gameRoom = _context12.sent;
+	                _this24.handle('onTransition', 'game');
+	                resolve(gameRoom);_context12.next = 18;break;case 14:_context12.prev = 14;_context12.t0 = _context12['catch'](0);
+
+	                _this24.handle('onTransition', 'lobby');
+	                reject(_context12.t0);case 18:case 'end':return _context12.stop();}}}, _callee12, _this24, [[0, 14]]);}));return function (_x21, _x22) {return _ref14.apply(this, arguments);};}());
 
 
-	                  _this21._appRouter.fetch());case 3:lobbyRouterUrl = _context17.sent;_context17.next = 6;return (
+	  },
 
-	                  _this21._router.fetch(lobbyRouterUrl));case 6:lobbyServerInfo = _context17.sent;
-	                _this21.transition('lobbyConnecting');
+	  _connectLobby: function _connectLobby() {var _this25 = this;
+	    return new _Promise(function () {var _ref15 = _asyncToGenerator( /*#__PURE__*/regenerator.mark(function _callee13(resolve, reject) {var lobbyRouterUrl, lobbyServerInfo, primaryServer, secondaryServer, _play2, appId, userId, gameVersion;return regenerator.wrap(function _callee13$(_context13) {while (1) {switch (_context13.prev = _context13.next) {case 0:_context13.prev = 0;_context13.next = 3;return (
+
+
+	                  _this25._playRouter.fetch());case 3:lobbyRouterUrl = _context13.sent;_context13.next = 6;return (
+
+	                  _this25._router.fetch(lobbyRouterUrl));case 6:lobbyServerInfo = _context13.sent;
 	                primaryServer = lobbyServerInfo.primaryServer, secondaryServer = lobbyServerInfo.secondaryServer;
-	                _this21._primaryServer = primaryServer;
-	                _this21._secondaryServer = secondaryServer;
-	                // 与大厅建立连接
-	                _context17.next = 13;return _this21._lobbyConn.connect(
-	                _this21._primaryServer,
-	                _this21._play._userId);case 13:
+	                _this25._primaryServer = primaryServer;
+	                _this25._secondaryServer = secondaryServer;
+	                // 与大厅服务器建立连接
+	                _context13.next = 12;return _this25._lobbyConn.connect(_this25._primaryServer, _this25._play._userId);case 12:_context13.next = 17;break;case 14:_context13.prev = 14;_context13.t0 = _context13['catch'](0);
 
-	                _this21.transition('lobbyOpening');
-	                // 打开会话
+	                reject(_context13.t0);case 17:
+
+	                // 打开大厅服务器会话
 	                _play2 =
 
 
 
-	                _this21._play, appId = _play2._appId, userId = _play2._userId, gameVersion = _play2._gameVersion;_context17.next = 17;return (
-	                  _this21._lobbyConn.openSession(appId, userId, gameVersion));case 17:
-	                _this21.transition('lobbyConnected');
-	                resolve();_context17.next = 27;break;case 21:_context17.prev = 21;_context17.t0 = _context17['catch'](0);
+	                _this25._play, appId = _play2._appId, userId = _play2._userId, gameVersion = _play2._gameVersion;_context13.prev = 18;_context13.next = 21;return (
 
-	                debug('connect lobby error:' + _context17.t0);
-	                debug(_context17.t0 instanceof PlayError);
-	                _this21.transition('init');
-	                reject(_context17.t0);case 27:case 'end':return _context17.stop();}}}, _callee17, _this21, [[0, 21]]);}));return function (_x32, _x33) {return _ref19.apply(this, arguments);};}());
+	                  _this25._lobbyConn.openSession(appId, userId, gameVersion));case 21:
+	                resolve(_this25._play);_context13.next = 28;break;case 24:_context13.prev = 24;_context13.t1 = _context13['catch'](18);
+
+	                _this25._lobbyConn.close();
+	                reject(_context13.t1);case 28:case 'end':return _context13.stop();}}}, _callee13, _this25, [[0, 14], [18, 24]]);}));return function (_x23, _x24) {return _ref15.apply(this, arguments);};}());
 
 
 	  },
 
-	  _connectGame: function _connectGame(addr, secureAddr) {var _this22 = this;
-	    this.transition('gameConnecting');
-	    return new _Promise(function () {var _ref20 = _asyncToGenerator( /*#__PURE__*/regenerator.mark(function _callee18(resolve, reject) {var gameServer, _play3, appId, userId, gameVersion;return regenerator.wrap(function _callee18$(_context18) {while (1) {switch (_context18.prev = _context18.next) {case 0:_context18.prev = 0;
+	  _connectGame: function _connectGame(addr, secureAddr) {var _this26 = this;
+	    return new _Promise(function () {var _ref16 = _asyncToGenerator( /*#__PURE__*/regenerator.mark(function _callee14(resolve, reject) {var gameServer, _play3, appId, userId, gameVersion;return regenerator.wrap(function _callee14$(_context14) {while (1) {switch (_context14.prev = _context14.next) {case 0:_context14.prev = 0;
 
-	                gameServer = addr || secureAddr;_context18.next = 4;return (
-	                  _this22._gameConn.connect(
-	                  gameServer,
-	                  _this22._play._userId));case 4:
 
-	                _this22.transition('gameOpening');_play3 =
+	                gameServer = addr || secureAddr;_context14.next = 4;return (
+	                  _this26._gameConn.connect(gameServer, _this26._play._userId));case 4:_context14.next = 9;break;case 6:_context14.prev = 6;_context14.t0 = _context14['catch'](0);
+
+	                reject(_context14.t0);case 9:_context14.prev = 9;_play3 =
 
 
 
 
-	                _this22._play, appId = _play3._appId, userId = _play3._userId, gameVersion = _play3._gameVersion;_context18.next = 8;return (
-	                  _this22._gameConn.openSession(appId, userId, gameVersion));case 8:
-	                resolve();_context18.next = 15;break;case 11:_context18.prev = 11;_context18.t0 = _context18['catch'](0);
 
-	                _this22.transition('lobbyConnected');
-	                reject(_context18.t0);case 15:case 'end':return _context18.stop();}}}, _callee18, _this22, [[0, 11]]);}));return function (_x34, _x35) {return _ref20.apply(this, arguments);};}());
+
+
+	                _this26._play, appId = _play3._appId, userId = _play3._userId, gameVersion = _play3._gameVersion;_context14.next = 13;return (
+	                  _this26._gameConn.openSession(appId, userId, gameVersion));case 13:
+	                resolve();_context14.next = 20;break;case 16:_context14.prev = 16;_context14.t1 = _context14['catch'](9);
+
+	                _this26._gameConn.close();
+	                reject(_context14.t1);case 20:case 'end':return _context14.stop();}}}, _callee14, _this26, [[0, 6], [9, 16]]);}));return function (_x25, _x26) {return _ref16.apply(this, arguments);};}());
 
 
 	  },
 
-	  _createGameRoom: function _createGameRoom(cid, roomOptions, expectedUserIds) {var _this23 = this;
-	    return new _Promise(function () {var _ref21 = _asyncToGenerator( /*#__PURE__*/regenerator.mark(function _callee19(resolve, reject) {var gameRoom;return regenerator.wrap(function _callee19$(_context19) {while (1) {switch (_context19.prev = _context19.next) {case 0:_context19.prev = 0;_context19.next = 3;return (
+	  _createGameRoom: function _createGameRoom(cid, roomOptions, expectedUserIds) {var _this27 = this;
+	    return new _Promise(function () {var _ref17 = _asyncToGenerator( /*#__PURE__*/regenerator.mark(function _callee15(resolve, reject) {var gameRoom;return regenerator.wrap(function _callee15$(_context15) {while (1) {switch (_context15.prev = _context15.next) {case 0:_context15.prev = 0;_context15.next = 3;return (
 
-	                  _this23._gameConn.createRoom(
+	                  _this27._gameConn.createRoom(
 	                  cid,
 	                  roomOptions,
-	                  expectedUserIds));case 3:gameRoom = _context19.sent;
+	                  expectedUserIds));case 3:gameRoom = _context15.sent;
 
-	                _this23._initGame(gameRoom);_context19.next = 7;return (
-	                  _this23._lobbyConn.close());case 7:
-	                _this23.transition('gameConnected');
-	                resolve();_context19.next = 16;break;case 11:_context19.prev = 11;_context19.t0 = _context19['catch'](0);_context19.next = 15;return (
+	                _this27._initGame(gameRoom);
+	                _this27._lobbyConn.close();
+	                resolve(gameRoom);_context15.next = 13;break;case 9:_context15.prev = 9;_context15.t0 = _context15['catch'](0);
 
-	                  _this23._gameConn.close());case 15:
-	                reject(_context19.t0);case 16:case 'end':return _context19.stop();}}}, _callee19, _this23, [[0, 11]]);}));return function (_x36, _x37) {return _ref21.apply(this, arguments);};}());
+	                _this27._gameConn.close();
+	                reject(_context15.t0);case 13:case 'end':return _context15.stop();}}}, _callee15, _this27, [[0, 9]]);}));return function (_x27, _x28) {return _ref17.apply(this, arguments);};}());
 
 
 	  },
 
-	  _joinGameRoom: function _joinGameRoom(cid, expectedUserIds, matchProperties) {var _this24 = this;
-	    return new _Promise(function () {var _ref22 = _asyncToGenerator( /*#__PURE__*/regenerator.mark(function _callee20(resolve, reject) {var gameRoom;return regenerator.wrap(function _callee20$(_context20) {while (1) {switch (_context20.prev = _context20.next) {case 0:_context20.prev = 0;_context20.next = 3;return (
+	  _joinGameRoom: function _joinGameRoom(cid, expectedUserIds, matchProperties) {var _this28 = this;
+	    return new _Promise(function () {var _ref18 = _asyncToGenerator( /*#__PURE__*/regenerator.mark(function _callee16(resolve, reject) {var gameRoom;return regenerator.wrap(function _callee16$(_context16) {while (1) {switch (_context16.prev = _context16.next) {case 0:_context16.prev = 0;_context16.next = 3;return (
 
-	                  _this24._gameConn.joinRoom(
+	                  _this28._gameConn.joinRoom(
 	                  cid,
 	                  matchProperties,
-	                  expectedUserIds));case 3:gameRoom = _context20.sent;
+	                  expectedUserIds));case 3:gameRoom = _context16.sent;
 
-	                _this24._initGame(gameRoom);_context20.next = 7;return (
-	                  _this24._lobbyConn.close());case 7:
-	                _this24.transition('gameConnected');
-	                resolve();_context20.next = 16;break;case 11:_context20.prev = 11;_context20.t0 = _context20['catch'](0);_context20.next = 15;return (
+	                _this28._initGame(gameRoom);
+	                _this28._lobbyConn.close();
+	                resolve(gameRoom);_context16.next = 13;break;case 9:_context16.prev = 9;_context16.t0 = _context16['catch'](0);
 
-	                  _this24._gameConn.close());case 15:
-	                reject(_context20.t0);case 16:case 'end':return _context20.stop();}}}, _callee20, _this24, [[0, 11]]);}));return function (_x38, _x39) {return _ref22.apply(this, arguments);};}());
+	                _this28._gameConn.close();
+	                reject(_context16.t0);case 13:case 'end':return _context16.stop();}}}, _callee16, _this28, [[0, 9]]);}));return function (_x29, _x30) {return _ref18.apply(this, arguments);};}());
 
 
 	  },
 
-	  _initGame: function _initGame(gameRoom) {var _this25 = this;
+	  _initGame: function _initGame(gameRoom) {var _this29 = this;
 	    this._play._room = gameRoom;
 	    gameRoom._play = this._play;
 	    /* eslint no-param-reassign: ["error", { "props": false }] */
 	    lodash.forEach(gameRoom.playerList, function (player) {
-	      player._play = _this25._play;
-	      if (player.userId === _this25._play._userId) {
-	        _this25._play._player = player;
+	      player._play = _this29._play;
+	      if (player.userId === _this29._play._userId) {
+	        _this29._play._player = player;
 	      }
 	    });
 	  } });
 
-	var
-
+	/**
+	                                              * 多人对战游戏服务的客户端
+	                                              * @param {Object} opts
+	                                              * @param {String} opts.userId 玩家唯一 Id
+	                                              * @param {String} opts.appId APP ID
+	                                              * @param {String} opts.appKey APP KEY
+	                                              * @param {Boolean} [opts.ssl] 是否使用 ssl，仅在 Client Engine 中可用
+	                                              * @param {String} [opts.gameVersion] 游戏版本号
+	                                              * @param {String} [opts.playServer] 路由地址
+	                                              */var
 	Client = function (_EventEmitter) {_inherits(Client, _EventEmitter);
-	  /**
-	                                                                      * 多人对战游戏服务的客户端
-	                                                                      * @param {Object} opts
-	                                                                      * @param {String} opts.userId 玩家唯一 Id
-	                                                                      * @param {String} opts.appId APP ID
-	                                                                      * @param {String} opts.appKey APP KEY
-	                                                                      * @param {Boolean} [opts.ssl] 是否使用 ssl，仅在 Client Engine 中可用
-	                                                                      * @param {String} [opts.gameVersion] 游戏版本号
-	                                                                      */
 	  function Client(opts) {_classCallCheck(this, Client);var _this = _possibleConstructorReturn(this, (Client.__proto__ || _Object$getPrototypeOf(Client)).call(this));
 
 	    if (!(typeof opts.appId === 'string')) {
@@ -25927,6 +26444,12 @@
 	    {
 	      throw new TypeError(opts.gameVersion + ' is not a string');
 	    }
+	    if (
+	    opts.playServer !== undefined &&
+	    !(typeof opts.playServer === 'string'))
+	    {
+	      throw new TypeError(opts.playServer + ' is not a string');
+	    }
 	    _this._userId = opts.userId;
 	    _this._appId = opts.appId;
 	    _this._appKey = opts.appKey;
@@ -25939,6 +26462,7 @@
 	    } else {
 	      _this._gameVersion = '0.0.1';
 	    }
+	    _this._playServer = opts.playServer;
 	    // fsm
 	    _this._fsm = new PlayFSM({
 	      play: _this });return _this;
@@ -25947,259 +26471,362 @@
 
 	  /**
 	     * 建立连接
-	     */_createClass(Client, [{ key: 'connect', value: function connect()
+	     */_createClass(Client, [{ key: 'connect', value: function () {var _ref = _asyncToGenerator( /*#__PURE__*/regenerator.mark(function _callee() {return regenerator.wrap(function _callee$(_context) {while (1) {switch (_context.prev = _context.next) {case 0:return _context.abrupt('return',
+
+	                this._fsm.handle('connect'));case 1:case 'end':return _context.stop();}}}, _callee, this);}));function connect() {return _ref.apply(this, arguments);}return connect;}()
+
+
+	    /**
+	                                                                                                                                                                                          * 重新连接
+	                                                                                                                                                                                          */ }, { key: 'reconnect', value: function () {var _ref2 = _asyncToGenerator( /*#__PURE__*/regenerator.mark(function _callee2() {return regenerator.wrap(function _callee2$(_context2) {while (1) {switch (_context2.prev = _context2.next) {case 0:return _context2.abrupt('return',
+
+	                this._fsm.handle('reconnect'));case 1:case 'end':return _context2.stop();}}}, _callee2, this);}));function reconnect() {return _ref2.apply(this, arguments);}return reconnect;}()
+
+
+	    /**
+	                                                                                                                                                                                                   * 重新连接并自动加入房间
+	                                                                                                                                                                                                   */ }, { key: 'reconnectAndRejoin', value: function () {var _ref3 = _asyncToGenerator( /*#__PURE__*/regenerator.mark(function _callee3() {return regenerator.wrap(function _callee3$(_context3) {while (1) {switch (_context3.prev = _context3.next) {case 0:if (!
+
+	                lodash.isNull(this._lastRoomId)) {_context3.next = 2;break;}throw (
+	                  new Error('There is not room name for rejoin'));case 2:return _context3.abrupt('return',
+
+	                this._fsm.handle('reconnectAndRejoin'));case 3:case 'end':return _context3.stop();}}}, _callee3, this);}));function reconnectAndRejoin() {return _ref3.apply(this, arguments);}return reconnectAndRejoin;}()
+
+
+	    /**
+	                                                                                                                                                                                                                              * 关闭
+	                                                                                                                                                                                                                              */ }, { key: 'close', value: function () {var _ref4 = _asyncToGenerator( /*#__PURE__*/regenerator.mark(function _callee4() {return regenerator.wrap(function _callee4$(_context4) {while (1) {switch (_context4.prev = _context4.next) {case 0:
+
+	                debug('close');
+	                this._clear();return _context4.abrupt('return',
+	                this._fsm.handle('close'));case 3:case 'end':return _context4.stop();}}}, _callee4, this);}));function close() {return _ref4.apply(this, arguments);}return close;}()
+
+
+	    /**
+	                                                                                                                                                                                       * 加入大厅
+	                                                                                                                                                                                       */ }, { key: 'joinLobby', value: function () {var _ref5 = _asyncToGenerator( /*#__PURE__*/regenerator.mark(function _callee5() {return regenerator.wrap(function _callee5$(_context5) {while (1) {switch (_context5.prev = _context5.next) {case 0:return _context5.abrupt('return',
+
+	                this._fsm.handle('joinLobby'));case 1:case 'end':return _context5.stop();}}}, _callee5, this);}));function joinLobby() {return _ref5.apply(this, arguments);}return joinLobby;}()
+
+
+	    /**
+	                                                                                                                                                                                                   * 离开大厅
+	                                                                                                                                                                                                   */ }, { key: 'leaveLobby', value: function () {var _ref6 = _asyncToGenerator( /*#__PURE__*/regenerator.mark(function _callee6() {return regenerator.wrap(function _callee6$(_context6) {while (1) {switch (_context6.prev = _context6.next) {case 0:return _context6.abrupt('return',
+
+	                this._fsm.handle('leaveLobby'));case 1:case 'end':return _context6.stop();}}}, _callee6, this);}));function leaveLobby() {return _ref6.apply(this, arguments);}return leaveLobby;}()
+
+
+	    /**
+	                                                                                                                                                                                                      * 创建房间
+	                                                                                                                                                                                                      * @param {Object} [opts] 创建房间选项
+	                                                                                                                                                                                                      * @param {String} [opts.roomName] 房间名称，在整个游戏中唯一，默认值为 null，则由服务端分配一个唯一 Id
+	                                                                                                                                                                                                      * @param {Object} [opts.roomOptions] 创建房间选项，默认值为 null
+	                                                                                                                                                                                                      * @param {Boolean} [opts.roomOptions.open] 房间是否打开
+	                                                                                                                                                                                                      * @param {Boolean} [opts.roomOptions.visible] 房间是否可见，只有「可见」的房间会出现在房间列表里
+	                                                                                                                                                                                                      * @param {Number} [opts.roomOptions.emptyRoomTtl] 房间为空后，延迟销毁的时间
+	                                                                                                                                                                                                      * @param {Number} [opts.roomOptions.playerTtl] 玩家掉线后，延迟销毁的时间
+	                                                                                                                                                                                                      * @param {Number} [opts.roomOptions.maxPlayerCount] 最大玩家数量
+	                                                                                                                                                                                                      * @param {Object} [opts.roomOptions.customRoomProperties] 自定义房间属性
+	                                                                                                                                                                                                      * @param {Array.<String>} [opts.roomOptions.customRoomPropertyKeysForLobby] 在大厅中可获得的房间属性「键」数组
+	                                                                                                                                                                                                      * @param {CreateRoomFlag} [opts.roomOptions.flag] 创建房间标记，可多选
+	                                                                                                                                                                                                      * @param {Array.<String>} [opts.expectedUserIds] 邀请好友 ID 数组，默认值为 null
+	                                                                                                                                                                                                      */ }, { key: 'createRoom', value: function () {var _ref7 = _asyncToGenerator( /*#__PURE__*/regenerator.mark(function _callee7() {var _ref8 = arguments.length > 0 && arguments[0] !== undefined ? arguments[0] :
+
+
+
+
+	        {},_ref8$roomName = _ref8.roomName,roomName = _ref8$roomName === undefined ? null : _ref8$roomName,_ref8$roomOptions = _ref8.roomOptions,roomOptions = _ref8$roomOptions === undefined ? null : _ref8$roomOptions,_ref8$expectedUserIds = _ref8.expectedUserIds,expectedUserIds = _ref8$expectedUserIds === undefined ? null : _ref8$expectedUserIds;return regenerator.wrap(function _callee7$(_context7) {while (1) {switch (_context7.prev = _context7.next) {case 0:if (!(
+	                roomName !== null && !(typeof roomName === 'string'))) {_context7.next = 2;break;}throw (
+	                  new TypeError(roomName + ' is not a string'));case 2:if (!(
+
+	                roomOptions !== null && !(roomOptions instanceof Object))) {_context7.next = 4;break;}throw (
+	                  new TypeError(roomOptions + ' is not a Object'));case 4:if (!(
+
+	                expectedUserIds !== null && !Array.isArray(expectedUserIds))) {_context7.next = 6;break;}throw (
+	                  new TypeError(expectedUserIds + ' is not an Array with string'));case 6:
+
+	                debug('create room');return _context7.abrupt('return',
+	                this._fsm.handle(
+	                'createRoom',
+	                roomName,
+	                roomOptions,
+	                expectedUserIds));case 8:case 'end':return _context7.stop();}}}, _callee7, this);}));function createRoom() {return _ref7.apply(this, arguments);}return createRoom;}()
+
+
+
+	    /**
+	                                                                                                                                                                                        * 加入房间
+	                                                                                                                                                                                        * @param {String} roomName 房间名称
+	                                                                                                                                                                                        * @param {*} [expectedUserIds] 邀请好友 ID 数组，默认值为 null
+	                                                                                                                                                                                        */ }, { key: 'joinRoom', value: function () {var _ref9 = _asyncToGenerator( /*#__PURE__*/regenerator.mark(function _callee8(
+	      roomName) {var _ref10 = arguments.length > 1 && arguments[1] !== undefined ? arguments[1] : {},_ref10$expectedUserId = _ref10.expectedUserIds,expectedUserIds = _ref10$expectedUserId === undefined ? null : _ref10$expectedUserId;return regenerator.wrap(function _callee8$(_context8) {while (1) {switch (_context8.prev = _context8.next) {case 0:if (
+	                typeof roomName === 'string') {_context8.next = 2;break;}throw (
+	                  new TypeError(roomName + ' is not a string'));case 2:if (!(
+
+	                expectedUserIds !== null && !Array.isArray(expectedUserIds))) {_context8.next = 4;break;}throw (
+	                  new TypeError(expectedUserIds + ' is not an array with string'));case 4:return _context8.abrupt('return',
+
+	                this._fsm.handle('joinRoom', roomName, expectedUserIds));case 5:case 'end':return _context8.stop();}}}, _callee8, this);}));function joinRoom(_x3) {return _ref9.apply(this, arguments);}return joinRoom;}()
+
+
+	    /**
+	                                                                                                                                                                                                                              * 重新加入房间
+	                                                                                                                                                                                                                              * @param {String} roomName 房间名称
+	                                                                                                                                                                                                                              */ }, { key: 'rejoinRoom', value: function () {var _ref11 = _asyncToGenerator( /*#__PURE__*/regenerator.mark(function _callee9(
+	      roomName) {return regenerator.wrap(function _callee9$(_context9) {while (1) {switch (_context9.prev = _context9.next) {case 0:if (
+	                typeof roomName === 'string') {_context9.next = 2;break;}throw (
+	                  new TypeError(roomName + ' is not a string'));case 2:return _context9.abrupt('return',
+
+	                this._fsm.handle('rejoinRoom', roomName));case 3:case 'end':return _context9.stop();}}}, _callee9, this);}));function rejoinRoom(_x4) {return _ref11.apply(this, arguments);}return rejoinRoom;}()
+
+
+	    /**
+	                                                                                                                                                                                                                    * 随机加入或创建房间
+	                                                                                                                                                                                                                    * @param {String} roomName 房间名称
+	                                                                                                                                                                                                                    * @param {Object} [opts] 创建房间选项
+	                                                                                                                                                                                                                    * @param {Object} [opts.roomOptions] 创建房间选项，默认值为 null
+	                                                                                                                                                                                                                    * @param {Boolean} [opts.roomOptions.open] 房间是否打开
+	                                                                                                                                                                                                                    * @param {Boolean} [opts.roomOptions.visible] 房间是否可见，只有「可见」的房间会出现在房间列表里
+	                                                                                                                                                                                                                    * @param {Number} [opts.roomOptions.emptyRoomTtl] 房间为空后，延迟销毁的时间
+	                                                                                                                                                                                                                    * @param {Number} [opts.roomOptions.playerTtl] 玩家掉线后，延迟销毁的时间
+	                                                                                                                                                                                                                    * @param {Number} [opts.roomOptions.maxPlayerCount] 最大玩家数量
+	                                                                                                                                                                                                                    * @param {Object} [opts.roomOptions.customRoomProperties] 自定义房间属性
+	                                                                                                                                                                                                                    * @param {Array.<String>} [opts.roomOptions.customRoomPropertyKeysForLobby] 在大厅中可获得的房间属性「键」数组
+	                                                                                                                                                                                                                    * @param {CreateRoomFlag} [opts.roomOptions.flag] 创建房间标记，可多选
+	                                                                                                                                                                                                                    * @param {Array.<String>} [opts.expectedUserIds] 邀请好友 ID 数组，默认值为 null
+	                                                                                                                                                                                                                    */ }, { key: 'joinOrCreateRoom', value: function () {var _ref12 = _asyncToGenerator( /*#__PURE__*/regenerator.mark(function _callee10(
+
+	      roomName) {var _ref13 = arguments.length > 1 && arguments[1] !== undefined ? arguments[1] :
+	        {},_ref13$roomOptions = _ref13.roomOptions,roomOptions = _ref13$roomOptions === undefined ? null : _ref13$roomOptions,_ref13$expectedUserId = _ref13.expectedUserIds,expectedUserIds = _ref13$expectedUserId === undefined ? null : _ref13$expectedUserId;return regenerator.wrap(function _callee10$(_context10) {while (1) {switch (_context10.prev = _context10.next) {case 0:if (
+
+	                typeof roomName === 'string') {_context10.next = 2;break;}throw (
+	                  new TypeError(roomName + ' is not a string'));case 2:if (!(
+
+	                roomOptions !== null && !(roomOptions instanceof Object))) {_context10.next = 4;break;}throw (
+	                  new TypeError(roomOptions + ' is not a Object'));case 4:if (!(
+
+	                expectedUserIds !== null && !Array.isArray(expectedUserIds))) {_context10.next = 6;break;}throw (
+	                  new TypeError(expectedUserIds + ' is not an array with string'));case 6:return _context10.abrupt('return',
+
+	                this._fsm.handle(
+	                'joinOrCreateRoom',
+	                roomName,
+	                roomOptions,
+	                expectedUserIds));case 7:case 'end':return _context10.stop();}}}, _callee10, this);}));function joinOrCreateRoom(_x6) {return _ref12.apply(this, arguments);}return joinOrCreateRoom;}()
+
+
+
+	    /**
+	                                                                                                                                                                                                          * 随机加入房间
+	                                                                                                                                                                                                          * @param {Object} [opts] 随机加入房间选项
+	                                                                                                                                                                                                          * @param {Object} [opts.matchProperties] 匹配属性，默认值为 null
+	                                                                                                                                                                                                          */ }, { key: 'joinRandomRoom', value: function () {var _ref14 = _asyncToGenerator( /*#__PURE__*/regenerator.mark(function _callee11() {var _ref15 = arguments.length > 0 && arguments[0] !== undefined ? arguments[0] :
+	        {},_ref15$matchPropertie = _ref15.matchProperties,matchProperties = _ref15$matchPropertie === undefined ? null : _ref15$matchPropertie;return regenerator.wrap(function _callee11$(_context11) {while (1) {switch (_context11.prev = _context11.next) {case 0:if (!(
+	                matchProperties !== null && !((typeof matchProperties === 'undefined' ? 'undefined' : _typeof(matchProperties)) === 'object'))) {_context11.next = 2;break;}throw (
+	                  new TypeError(matchProperties + ' is not an object'));case 2:return _context11.abrupt('return',
+
+	                this._fsm.handle('joinRandomRoom', matchProperties, null));case 3:case 'end':return _context11.stop();}}}, _callee11, this);}));function joinRandomRoom() {return _ref14.apply(this, arguments);}return joinRandomRoom;}()
+
+
+	    /**
+	                                                                                                                                                                                                                                            * 随机匹配，匹配成功后并不加入房间，而是返回房间 id
+	                                                                                                                                                                                                                                            * @param {Object} [opts] 随机加入房间选项
+	                                                                                                                                                                                                                                            * @param {Object} [opts.matchProperties] 匹配属性，默认值为 null
+	                                                                                                                                                                                                                                            */ }, { key: 'matchRandom', value: function () {var _ref16 = _asyncToGenerator( /*#__PURE__*/regenerator.mark(function _callee12(
+	      piggybackPeerId) {var _ref17 = arguments.length > 1 && arguments[1] !== undefined ? arguments[1] : {},_ref17$matchPropertie = _ref17.matchProperties,matchProperties = _ref17$matchPropertie === undefined ? null : _ref17$matchPropertie;return regenerator.wrap(function _callee12$(_context12) {while (1) {switch (_context12.prev = _context12.next) {case 0:if (!(
+	                typeof piggybackPeerId !== 'string')) {_context12.next = 2;break;}throw (
+	                  new Error(piggybackPeerId + ' is not a string'));case 2:if (!(
+
+	                matchProperties !== null && !((typeof matchProperties === 'undefined' ? 'undefined' : _typeof(matchProperties)) === 'object'))) {_context12.next = 4;break;}throw (
+	                  new TypeError(matchProperties + ' is not an object'));case 4:return _context12.abrupt('return',
+
+	                this._fsm.handle(
+	                'matchRandom',
+	                piggybackPeerId,
+	                matchProperties,
+	                null));case 5:case 'end':return _context12.stop();}}}, _callee12, this);}));function matchRandom(_x9) {return _ref16.apply(this, arguments);}return matchRandom;}()
+
+
+
+	    /**
+	                                                                                                                                                                                     * 设置房间开启 / 关闭
+	                                                                                                                                                                                     * @param {Boolean} open 是否开启
+	                                                                                                                                                                                     */ }, { key: 'setRoomOpen', value: function () {var _ref18 = _asyncToGenerator( /*#__PURE__*/regenerator.mark(function _callee13(
+	      open) {return regenerator.wrap(function _callee13$(_context13) {while (1) {switch (_context13.prev = _context13.next) {case 0:if (
+	                typeof open === 'boolean') {_context13.next = 2;break;}throw (
+	                  new TypeError(open + ' is not a boolean value'));case 2:if (!(
+
+	                this._room === null)) {_context13.next = 4;break;}throw (
+	                  new Error('room is null'));case 4:return _context13.abrupt('return',
+
+	                this._fsm.handle('setRoomOpen', open));case 5:case 'end':return _context13.stop();}}}, _callee13, this);}));function setRoomOpen(_x10) {return _ref18.apply(this, arguments);}return setRoomOpen;}()
+
+
+	    /**
+	                                                                                                                                                                                                                      * 设置房间可见 / 不可见
+	                                                                                                                                                                                                                      * @param {Boolean} visible 是否可见
+	                                                                                                                                                                                                                      */ }, { key: 'setRoomVisible', value: function () {var _ref19 = _asyncToGenerator( /*#__PURE__*/regenerator.mark(function _callee14(
+	      visible) {return regenerator.wrap(function _callee14$(_context14) {while (1) {switch (_context14.prev = _context14.next) {case 0:if (
+	                typeof visible === 'boolean') {_context14.next = 2;break;}throw (
+	                  new TypeError(visible + ' is not a boolean value'));case 2:if (!(
+
+	                this._room === null)) {_context14.next = 4;break;}throw (
+	                  new Error('room is null'));case 4:return _context14.abrupt('return',
+
+	                this._fsm.handle('setRoomVisible', visible));case 5:case 'end':return _context14.stop();}}}, _callee14, this);}));function setRoomVisible(_x11) {return _ref19.apply(this, arguments);}return setRoomVisible;}()
+
+
+	    /**
+	                                                                                                                                                                                                                                  * 设置房间允许的最大玩家数量
+	                                                                                                                                                                                                                                  * @param {*} count 数量
+	                                                                                                                                                                                                                                  */ }, { key: 'setRoomMaxPlayerCount', value: function () {var _ref20 = _asyncToGenerator( /*#__PURE__*/regenerator.mark(function _callee15(
+	      count) {return regenerator.wrap(function _callee15$(_context15) {while (1) {switch (_context15.prev = _context15.next) {case 0:if (!(
+	                !(typeof count === 'number') || count < 1)) {_context15.next = 2;break;}throw (
+	                  new TypeError(count + ' is not a positive number'));case 2:return _context15.abrupt('return',
+
+	                this._fsm.handle('setRoomMaxPlayerCount', count));case 3:case 'end':return _context15.stop();}}}, _callee15, this);}));function setRoomMaxPlayerCount(_x12) {return _ref20.apply(this, arguments);}return setRoomMaxPlayerCount;}()
+
+
+	    /**
+	                                                                                                                                                                                                                                                     * 设置房间占位玩家 Id 列表
+	                                                                                                                                                                                                                                                     * @param {*} expectedUserIds 玩家 Id 列表
+	                                                                                                                                                                                                                                                     */ }, { key: 'setRoomExpectedUserIds', value: function () {var _ref21 = _asyncToGenerator( /*#__PURE__*/regenerator.mark(function _callee16(
+	      expectedUserIds) {return regenerator.wrap(function _callee16$(_context16) {while (1) {switch (_context16.prev = _context16.next) {case 0:if (
+	                Array.isArray(expectedUserIds)) {_context16.next = 2;break;}throw (
+	                  new TypeError(expectedUserIds + ' is not an array'));case 2:return _context16.abrupt('return',
+
+	                this._fsm.handle('setRoomExpectedUserIds', expectedUserIds));case 3:case 'end':return _context16.stop();}}}, _callee16, this);}));function setRoomExpectedUserIds(_x13) {return _ref21.apply(this, arguments);}return setRoomExpectedUserIds;}()
+
+
+	    /**
+	                                                                                                                                                                                                                                                                  * 清空房间占位玩家 Id 列表
+	                                                                                                                                                                                                                                                                  */ }, { key: 'clearRoomExpectedUserIds', value: function () {var _ref22 = _asyncToGenerator( /*#__PURE__*/regenerator.mark(function _callee17() {return regenerator.wrap(function _callee17$(_context17) {while (1) {switch (_context17.prev = _context17.next) {case 0:return _context17.abrupt('return',
+
+	                this._fsm.handle('clearRoomExpectedUserIds'));case 1:case 'end':return _context17.stop();}}}, _callee17, this);}));function clearRoomExpectedUserIds() {return _ref22.apply(this, arguments);}return clearRoomExpectedUserIds;}()
+
+
+	    /**
+	                                                                                                                                                                                                                                                   * 增加房间占位玩家 Id 列表
+	                                                                                                                                                                                                                                                   * @param {*} expectedUserIds 增加的玩家 Id 列表
+	                                                                                                                                                                                                                                                   */ }, { key: 'addRoomExpectedUserIds', value: function () {var _ref23 = _asyncToGenerator( /*#__PURE__*/regenerator.mark(function _callee18(
+	      expectedUserIds) {return regenerator.wrap(function _callee18$(_context18) {while (1) {switch (_context18.prev = _context18.next) {case 0:if (
+	                Array.isArray(expectedUserIds)) {_context18.next = 2;break;}throw (
+	                  new TypeError(expectedUserIds + ' is not an array'));case 2:return _context18.abrupt('return',
+
+	                this._fsm.handle('addRoomExpectedUserIds', expectedUserIds));case 3:case 'end':return _context18.stop();}}}, _callee18, this);}));function addRoomExpectedUserIds(_x14) {return _ref23.apply(this, arguments);}return addRoomExpectedUserIds;}()
+
+
+	    /**
+	                                                                                                                                                                                                                                                                  * 移除房间占位玩家 Id 列表
+	                                                                                                                                                                                                                                                                  * @param {*} expectedUserIds 移除的玩家 Id 列表
+	                                                                                                                                                                                                                                                                  */ }, { key: 'removeRoomExpectedUserIds', value: function () {var _ref24 = _asyncToGenerator( /*#__PURE__*/regenerator.mark(function _callee19(
+	      expectedUserIds) {return regenerator.wrap(function _callee19$(_context19) {while (1) {switch (_context19.prev = _context19.next) {case 0:if (
+	                Array.isArray(expectedUserIds)) {_context19.next = 2;break;}throw (
+	                  new TypeError(expectedUserIds + ' is not an array'));case 2:return _context19.abrupt('return',
+
+	                this._fsm.handle('removeRoomExpectedUserIds', expectedUserIds));case 3:case 'end':return _context19.stop();}}}, _callee19, this);}));function removeRoomExpectedUserIds(_x15) {return _ref24.apply(this, arguments);}return removeRoomExpectedUserIds;}()
+
+
+	    /**
+	                                                                                                                                                                                                                                                                           * 设置房主
+	                                                                                                                                                                                                                                                                           * @param {Number} newMasterId 新房主 ID
+	                                                                                                                                                                                                                                                                           */ }, { key: 'setMaster', value: function () {var _ref25 = _asyncToGenerator( /*#__PURE__*/regenerator.mark(function _callee20(
+	      newMasterId) {return regenerator.wrap(function _callee20$(_context20) {while (1) {switch (_context20.prev = _context20.next) {case 0:if (
+	                typeof newMasterId === 'number') {_context20.next = 2;break;}throw (
+	                  new TypeError(newMasterId + ' is not a number'));case 2:if (!(
+
+	                this._room === null)) {_context20.next = 4;break;}throw (
+	                  new Error('room is null'));case 4:return _context20.abrupt('return',
+
+	                this._fsm.handle('setMaster', newMasterId));case 5:case 'end':return _context20.stop();}}}, _callee20, this);}));function setMaster(_x16) {return _ref25.apply(this, arguments);}return setMaster;}()
+
+
+	    /**
+	                                                                                                                                                                                                                       * 发送自定义消息
+	                                                                                                                                                                                                                       * @param {Number|String} eventId 事件 ID
+	                                                                                                                                                                                                                       * @param {Object} eventData 事件参数
+	                                                                                                                                                                                                                       * @param {Object} options 发送事件选项
+	                                                                                                                                                                                                                       * @param {ReceiverGroup} options.receiverGroup 接收组
+	                                                                                                                                                                                                                       * @param {Array.<Number>} options.targetActorIds 接收者 Id。如果设置，将会覆盖 receiverGroup
+	                                                                                                                                                                                                                       */ }, { key: 'sendEvent', value: function () {var _ref26 = _asyncToGenerator( /*#__PURE__*/regenerator.mark(function _callee21(
+
+	      eventId) {var
+	        eventData = arguments.length > 1 && arguments[1] !== undefined ? arguments[1] : {};var
+	        options = arguments.length > 2 && arguments[2] !== undefined ? arguments[2] : { receiverGroup: ReceiverGroup.All };return regenerator.wrap(function _callee21$(_context21) {while (1) {switch (_context21.prev = _context21.next) {case 0:if (
+
+	                typeof eventId === 'number') {_context21.next = 2;break;}throw (
+	                  new TypeError(eventId + ' is not a number'));case 2:if (!(
+
+	                eventId < -128 || eventId > 127)) {_context21.next = 4;break;}throw (
+	                  new Error('eventId must be [-128, 127]'));case 4:if (
+
+	                (typeof eventData === 'undefined' ? 'undefined' : _typeof(eventData)) === 'object') {_context21.next = 6;break;}throw (
+	                  new TypeError(eventData + ' is not an object'));case 6:if (
+
+	                options instanceof Object) {_context21.next = 8;break;}throw (
+	                  new TypeError(options + ' is not a Object'));case 8:if (!(
+
+
+	                options.receiverGroup === undefined &&
+	                options.targetActorIds === undefined)) {_context21.next = 10;break;}throw (
+
+	                  new TypeError('receiverGroup and targetActorIds are null'));case 10:if (!(
+
+	                this._room === null)) {_context21.next = 12;break;}throw (
+	                  new Error('room is null'));case 12:if (!(
+
+	                this._player === null)) {_context21.next = 14;break;}throw (
+	                  new Error('player is null'));case 14:return _context21.abrupt('return',
+
+	                this._fsm.handle('sendEvent', eventId, eventData, options));case 15:case 'end':return _context21.stop();}}}, _callee21, this);}));function sendEvent(_x19) {return _ref26.apply(this, arguments);}return sendEvent;}()
+
+
+	    /**
+	                                                                                                                                                                                                                                        * 离开房间
+	                                                                                                                                                                                                                                        */ }, { key: 'leaveRoom', value: function () {var _ref27 = _asyncToGenerator( /*#__PURE__*/regenerator.mark(function _callee22() {return regenerator.wrap(function _callee22$(_context22) {while (1) {switch (_context22.prev = _context22.next) {case 0:return _context22.abrupt('return',
+
+	                this._fsm.handle('leaveRoom'));case 1:case 'end':return _context22.stop();}}}, _callee22, this);}));function leaveRoom() {return _ref27.apply(this, arguments);}return leaveRoom;}()
+
+
+	    /**
+	                                                                                                                                                                                                      * 踢人
+	                                                                                                                                                                                                      * @param {Number} actorId 踢用户的 actorId
+	                                                                                                                                                                                                      * @param {Object} [opts] 附带参数
+	                                                                                                                                                                                                      * @param {Number} [opts.code] 编码
+	                                                                                                                                                                                                      * @param {String} [opts.msg] 附带信息
+	                                                                                                                                                                                                      */ }, { key: 'kickPlayer', value: function () {var _ref28 = _asyncToGenerator( /*#__PURE__*/regenerator.mark(function _callee23(
+	      actorId) {var _ref29 = arguments.length > 1 && arguments[1] !== undefined ? arguments[1] : {},_ref29$code = _ref29.code,code = _ref29$code === undefined ? null : _ref29$code,_ref29$msg = _ref29.msg,msg = _ref29$msg === undefined ? null : _ref29$msg;return regenerator.wrap(function _callee23$(_context23) {while (1) {switch (_context23.prev = _context23.next) {case 0:if (
+	                lodash.isNumber(actorId)) {_context23.next = 2;break;}throw (
+	                  new TypeError(actorId + ' is not a number'));case 2:if (!(
+
+	                !lodash.isNull(code) && !lodash.isNumber(code))) {_context23.next = 4;break;}throw (
+	                  new TypeError(code + ' is not a number'));case 4:if (!(
+
+	                !lodash.isNull(msg) && !lodash.isString(msg))) {_context23.next = 6;break;}throw (
+	                  new TypeError(msg + ' is not a string'));case 6:return _context23.abrupt('return',
+
+	                this._fsm.handle('kickPlayer', actorId, code, msg));case 7:case 'end':return _context23.stop();}}}, _callee23, this);}));function kickPlayer(_x21) {return _ref28.apply(this, arguments);}return kickPlayer;}()
+
+
+	    /**
+	                                                                                                                                                                                                                                 * 暂停消息队列处理
+	                                                                                                                                                                                                                                 * @return {void}
+	                                                                                                                                                                                                                                 */ }, { key: 'pauseMessageQueue', value: function pauseMessageQueue()
 	    {
-	      return this._fsm.handle('connect');
+	      this._fsm.handle('pauseMessageQueue');
 	    }
 
 	    /**
-	       * 重新连接
-	       */ }, { key: 'reconnect', value: function reconnect()
+	       * 恢复消息队列处理
+	       * @return {void}
+	       */ }, { key: 'resumeMessageQueue', value: function resumeMessageQueue()
 	    {
-	      return this._fsm.handle('connect');
-	    }
-
-	    /**
-	       * 重新连接并自动加入房间
-	       */ }, { key: 'reconnectAndRejoin', value: function reconnectAndRejoin()
-	    {
-	      if (lodash.isNull(this._lastRoomId)) {
-	        throw new Error('There is not room name for rejoin');
-	      }
-	      return this._fsm.handle('reconnectAndRejoin');
-	    }
-
-	    /**
-	       * 断开连接
-	       */ }, { key: 'disconnect', value: function disconnect()
-	    {
-	      return this._fsm.handle('disconnect');
-	    }
-
-	    /**
-	       * 重置
-	       */ }, { key: 'reset', value: function reset()
-	    {
-	      debug('reset');
-	      this._clear();
-	      return this._fsm.handle('reset');
-	    }
-
-	    /**
-	       * 加入大厅
-	       */ }, { key: 'joinLobby', value: function joinLobby()
-	    {
-	      return this._fsm.handle('joinLobby');
-	    }
-
-	    /**
-	       * 离开大厅
-	       */ }, { key: 'leaveLobby', value: function leaveLobby()
-	    {
-	      return this._fsm.handle('leaveLobby');
-	    }
-
-	    /**
-	       * 创建房间
-	       * @param {Object} [opts] 创建房间选项
-	       * @param {string} [opts.roomName] 房间名称，在整个游戏中唯一，默认值为 null，则由服务端分配一个唯一 Id
-	       * @param {Object} [opts.roomOptions] 创建房间选项，默认值为 null
-	       * @param {Boolean} [opts.roomOptions.opened] 房间是否打开
-	       * @param {Boolean} [opts.roomOptions.visible] 房间是否可见，只有「可见」的房间会出现在房间列表里
-	       * @param {Number} [opts.roomOptions.emptyRoomTtl] 房间为空后，延迟销毁的时间
-	       * @param {Number} [opts.roomOptions.playerTtl] 玩家掉线后，延迟销毁的时间
-	       * @param {Number} [opts.roomOptions.maxPlayerCount] 最大玩家数量
-	       * @param {Object} [opts.roomOptions.customRoomProperties] 自定义房间属性
-	       * @param {Array.<string>} [opts.roomOptions.customRoomPropertyKeysForLobby] 在大厅中可获得的房间属性「键」数组
-	       * @param {CreateRoomFlag} [opts.roomOptions.flag] 创建房间标记，可多选
-	       * @param {Array.<string>} [opts.expectedUserIds] 邀请好友 ID 数组，默认值为 null
-	       */ }, { key: 'createRoom', value: function createRoom()
-
-
-
-
-	    {var _ref = arguments.length > 0 && arguments[0] !== undefined ? arguments[0] : {},_ref$roomName = _ref.roomName,roomName = _ref$roomName === undefined ? null : _ref$roomName,_ref$roomOptions = _ref.roomOptions,roomOptions = _ref$roomOptions === undefined ? null : _ref$roomOptions,_ref$expectedUserIds = _ref.expectedUserIds,expectedUserIds = _ref$expectedUserIds === undefined ? null : _ref$expectedUserIds;
-	      if (roomName !== null && !(typeof roomName === 'string')) {
-	        throw new TypeError(roomName + ' is not a string');
-	      }
-	      if (roomOptions !== null && !(roomOptions instanceof Object)) {
-	        throw new TypeError(roomOptions + ' is not a Object');
-	      }
-	      if (expectedUserIds !== null && !Array.isArray(expectedUserIds)) {
-	        throw new TypeError(expectedUserIds + ' is not an Array with string');
-	      }
-	      debug('create room');
-	      return this._fsm.handle(
-	      'createRoom',
-	      roomName,
-	      roomOptions,
-	      expectedUserIds);
-
-	    }
-
-	    /**
-	       * 加入房间
-	       * @param {string} roomName 房间名称
-	       * @param {*} [expectedUserIds] 邀请好友 ID 数组，默认值为 null
-	       */ }, { key: 'joinRoom', value: function joinRoom(
-	    roomName) {var _ref2 = arguments.length > 1 && arguments[1] !== undefined ? arguments[1] : {},_ref2$expectedUserIds = _ref2.expectedUserIds,expectedUserIds = _ref2$expectedUserIds === undefined ? null : _ref2$expectedUserIds;
-	      if (!(typeof roomName === 'string')) {
-	        throw new TypeError(roomName + ' is not a string');
-	      }
-	      if (expectedUserIds !== null && !Array.isArray(expectedUserIds)) {
-	        throw new TypeError(expectedUserIds + ' is not an array with string');
-	      }
-	      return this._fsm.handle('joinRoom', roomName, expectedUserIds);
-	    }
-
-	    /**
-	       * 重新加入房间
-	       * @param {string} roomName 房间名称
-	       */ }, { key: 'rejoinRoom', value: function rejoinRoom(
-	    roomName) {
-	      if (!(typeof roomName === 'string')) {
-	        throw new TypeError(roomName + ' is not a string');
-	      }
-	      return this._fsm.handle('rejoinRoom', roomName);
-	    }
-
-	    /**
-	       * 随机加入或创建房间
-	       * @param {string} roomName 房间名称
-	       * @param {Object} [opts] 创建房间选项
-	       * @param {Object} [opts.roomOptions] 创建房间选项，默认值为 null
-	       * @param {Boolean} [opts.roomOptions.opened] 房间是否打开
-	       * @param {Boolean} [opts.roomOptions.visible] 房间是否可见，只有「可见」的房间会出现在房间列表里
-	       * @param {Number} [opts.roomOptions.emptyRoomTtl] 房间为空后，延迟销毁的时间
-	       * @param {Number} [opts.roomOptions.playerTtl] 玩家掉线后，延迟销毁的时间
-	       * @param {Number} [opts.roomOptions.maxPlayerCount] 最大玩家数量
-	       * @param {Object} [opts.roomOptions.customRoomProperties] 自定义房间属性
-	       * @param {Array.<string>} [opts.roomOptions.customRoomPropertyKeysForLobby] 在大厅中可获得的房间属性「键」数组
-	       * @param {CreateRoomFlag} [opts.roomOptions.flag] 创建房间标记，可多选
-	       * @param {Array.<string>} [opts.expectedUserIds] 邀请好友 ID 数组，默认值为 null
-	       */ }, { key: 'joinOrCreateRoom', value: function joinOrCreateRoom(
-
-	    roomName)
-
-	    {var _ref3 = arguments.length > 1 && arguments[1] !== undefined ? arguments[1] : {},_ref3$roomOptions = _ref3.roomOptions,roomOptions = _ref3$roomOptions === undefined ? null : _ref3$roomOptions,_ref3$expectedUserIds = _ref3.expectedUserIds,expectedUserIds = _ref3$expectedUserIds === undefined ? null : _ref3$expectedUserIds;
-	      if (!(typeof roomName === 'string')) {
-	        throw new TypeError(roomName + ' is not a string');
-	      }
-	      if (roomOptions !== null && !(roomOptions instanceof Object)) {
-	        throw new TypeError(roomOptions + ' is not a Object');
-	      }
-	      if (expectedUserIds !== null && !Array.isArray(expectedUserIds)) {
-	        throw new TypeError(expectedUserIds + ' is not an array with string');
-	      }
-	      return this._fsm.handle(
-	      'joinOrCreateRoom',
-	      roomName,
-	      roomOptions,
-	      expectedUserIds);
-
-	    }
-
-	    /**
-	       * 随机加入房间
-	       * @param {Object} [opts] 随机加入房间选项
-	       * @param {Object} [opts.matchProperties] 匹配属性，默认值为 null
-	       * @param {Array.<string>} [opts.expectedUserIds] 邀请好友 ID 数组，默认值为 null
-	       */ }, { key: 'joinRandomRoom', value: function joinRandomRoom()
-	    {var _ref4 = arguments.length > 0 && arguments[0] !== undefined ? arguments[0] : {},_ref4$matchProperties = _ref4.matchProperties,matchProperties = _ref4$matchProperties === undefined ? null : _ref4$matchProperties,_ref4$expectedUserIds = _ref4.expectedUserIds,expectedUserIds = _ref4$expectedUserIds === undefined ? null : _ref4$expectedUserIds;
-	      if (matchProperties !== null && !((typeof matchProperties === 'undefined' ? 'undefined' : _typeof(matchProperties)) === 'object')) {
-	        throw new TypeError(matchProperties + ' is not an object');
-	      }
-	      if (expectedUserIds !== null && !Array.isArray(expectedUserIds)) {
-	        throw new TypeError(expectedUserIds + ' is not an array with string');
-	      }
-	      return this._fsm.handle('joinRandomRoom', matchProperties, expectedUserIds);
-	    }
-
-	    /**
-	       * 设置房间开启 / 关闭
-	       * @param {Boolean} opened 是否开启
-	       */ }, { key: 'setRoomOpened', value: function setRoomOpened(
-	    opened) {
-	      if (!(typeof opened === 'boolean')) {
-	        throw new TypeError(opened + ' is not a boolean value');
-	      }
-	      if (this._room === null) {
-	        throw new Error('room is null');
-	      }
-	      return this._fsm.handle('setRoomOpened', opened);
-	    }
-
-	    /**
-	       * 设置房间可见 / 不可见
-	       * @param {Boolean} visible 是否可见
-	       */ }, { key: 'setRoomVisible', value: function setRoomVisible(
-	    visible) {
-	      if (!(typeof visible === 'boolean')) {
-	        throw new TypeError(visible + ' is not a boolean value');
-	      }
-	      if (this._room === null) {
-	        throw new Error('room is null');
-	      }
-	      return this._fsm.handle('setRoomVisible', visible);
-	    }
-
-	    /**
-	       * 设置房主
-	       * @param {number} newMasterId 新房主 ID
-	       */ }, { key: 'setMaster', value: function setMaster(
-	    newMasterId) {
-	      if (!(typeof newMasterId === 'number')) {
-	        throw new TypeError(newMasterId + ' is not a number');
-	      }
-	      if (this._room === null) {
-	        throw new Error('room is null');
-	      }
-	      return this._fsm.handle('setMaster', newMasterId);
-	    }
-
-	    /**
-	       * 发送自定义消息
-	       * @param {number|string} eventId 事件 ID
-	       * @param {Object} eventData 事件参数
-	       * @param {Object} options 发送事件选项
-	       * @param {ReceiverGroup} options.receiverGroup 接收组
-	       * @param {Array.<number>} options.targetActorIds 接收者 Id。如果设置，将会覆盖 receiverGroup
-	       */ }, { key: 'sendEvent', value: function sendEvent(
-	    eventId, eventData, options) {
-	      if (!(typeof eventId === 'string') && !(typeof eventId === 'number')) {
-	        throw new TypeError(eventId + ' is not a string or number');
-	      }
-	      if (!((typeof eventData === 'undefined' ? 'undefined' : _typeof(eventData)) === 'object')) {
-	        throw new TypeError(eventData + ' is not an object');
-	      }
-	      if (!(options instanceof Object)) {
-	        throw new TypeError(options + ' is not a Object');
-	      }
-	      if (
-	      options.receiverGroup === undefined &&
-	      options.targetActorIds === undefined)
-	      {
-	        throw new TypeError('receiverGroup and targetActorIds are null');
-	      }
-	      if (this._room === null) {
-	        throw new Error('room is null');
-	      }
-	      if (this._player === null) {
-	        throw new Error('player is null');
-	      }
-	      return this._fsm.handle('sendEvent', eventId, eventData, options);
-	    }
-
-	    /**
-	       * 离开房间
-	       */ }, { key: 'leaveRoom', value: function leaveRoom()
-	    {
-	      return this._fsm.handle('leaveRoom');
+	      this._fsm.handle('resumeMessageQueue');
 	    }
 
 	    /**
 	       * 获取当前所在房间
-	       * @return {Room}
+	       * @type {Room}
 	       * @readonly
 	       */ }, { key: '_setRoomCustomProperties',
 
@@ -26260,44 +26887,37 @@
 
 	    // 清理内存数据
 	  }, { key: '_clear', value: function _clear() {
+	      this.removeAllListeners();
 	      this._lobbyRoomList = null;
 	      this._masterServer = null;
 	      this._gameServer = null;
 	      this._room = null;
 	      this._player = null;
-	    } }, { key: 'room', get: function get() {return this._room;} /**
-	                                                                  * 获取当前玩家
-	                                                                  * @return {Player}
-	                                                                  * @readonly
-	                                                                  */ }, { key: 'player', get: function get() {return this._player;} /**
-	                                                                                                                                     * 获取房间列表
-	                                                                                                                                     * @return {Array.<LobbyRoom>}
-	                                                                                                                                     * @readonly
-	                                                                                                                                     */ }, { key: 'lobbyRoomList', get: function get() {return this._lobbyRoomList;} }]);return Client;}(eventemitter3);
+	    }
 
-	/**
-	 * 接收组枚举
-	 * @readonly
-	 * @enum {number}
-	 */
-	var ReceiverGroup = {
-	  /**
-	                       * 其他人（除了自己之外的所有人）
-	                       */
-	  Others: 0,
-	  /**
-	              * 所有人（包括自己）
-	              */
-	  All: 1,
-	  /**
-	           * 主机客户端
-	           */
-	  MasterClient: 2 };
+	    // 模拟断线
+	  }, { key: '_simulateDisconnection', value: function _simulateDisconnection() {
+	      this._fsm.handle('_simulateDisconnection');
+	    }
+
+	    /**
+	       * 获取用户 id
+	       * @type {String}
+	       * @readonly
+	       */ }, { key: 'room', get: function get() {return this._room;} /**
+	                                                                      * 获取当前玩家
+	                                                                      * @type {Player}
+	                                                                      * @readonly
+	                                                                      */ }, { key: 'player', get: function get() {return this._player;} /**
+	                                                                                                                                         * 获取房间列表
+	                                                                                                                                         * @type {Array.<LobbyRoom>}
+	                                                                                                                                         * @readonly
+	                                                                                                                                         */ }, { key: 'lobbyRoomList', get: function get() {return this._lobbyRoomList;} }, { key: 'userId', get: function get() {return this._userId;} }]);return Client;}(eventemitter3);
 
 	/**
 	 * 创建房间标识
 	 * @readonly
-	 * @enum {number}
+	 * @enum {Number}
 	 */
 	var CreateRoomFlag = {
 	  /**

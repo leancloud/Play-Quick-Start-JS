@@ -1,5 +1,7 @@
 const { Client, Event, ReceiverGroup, setAdapters, LogLevel, setLogger } = Play;
 
+const GAME_OVER_EVENT = 100;
+
 cc.Class({
   extends: cc.Component,
 
@@ -52,13 +54,13 @@ cc.Class({
     play.on(Event.PLAYER_ROOM_JOINED, data => {
       const { newPlayer } = data;
       console.log(`new player: ${newPlayer.userId}`);
-      if (play.player.isMaster()) {
+      if (play.player.isMaster) {
         // 获取房间玩家列表
         const playerList = play.room.playerList;
         for (let i = 0; i < playerList.length; i++) {
           const player = playerList[i];
           // 判断如果是房主，则设置 10 分，否则设置 5 分
-          if (player.isMaster()) {
+          if (player.isMaster) {
             player.setCustomProperties({
               point: 10
             });
@@ -69,7 +71,7 @@ cc.Class({
           }
         }
         play.sendEvent(
-          "win",
+          GAME_OVER_EVENT,
           { winnerId: play.room.masterId },
           { receiverGroup: ReceiverGroup.All }
         );
@@ -77,16 +79,16 @@ cc.Class({
     });
     play.on(Event.PLAYER_CUSTOM_PROPERTIES_CHANGED, data => {
       const { player } = data;
-      const { point } = player.getCustomProperties();
+      const { point } = player.customProperties;
       console.log(`${player.userId}: ${point}`);
-      if (player.isLocal()) {
+      if (player.isLocal) {
         this.scoreLabel.string = `score:${point}`;
       }
     });
     play.on(Event.CUSTOM_EVENT, async event => {
       // 解构事件参数
       const { eventId, eventData } = event;
-      if (eventId === "win") {
+      if (eventId === GAME_OVER_EVENT) {
         const { winnerId } = eventData;
         console.log(`winnerId: ${winnerId}`);
         // 如果胜利者是自己，则显示胜利 UI；否则显示失败 UI
