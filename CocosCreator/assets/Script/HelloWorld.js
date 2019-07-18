@@ -25,12 +25,12 @@ cc.Class({
     const randId = parseInt(Math.random() * 1000000, 10);
     this.idLabel.string = `ID: ${randId}`;
 
-    if (cc.sys.platform === cc.sys.ANDROID) {
-      const caPath = cc.url.raw("resources/cacert.pem");
-      setAdapters({
-        WebSocket: url => new WebSocket(url, null, caPath)
-      });
-    }
+    // if (cc.sys.platform === cc.sys.ANDROID) {
+    //   const caPath = cc.url.raw("resources/cacert.pem");
+    //   setAdapters({
+    //     WebSocket: url => new WebSocket(url, null, caPath)
+    //   });
+    // }
 
     setLogger({
       [LogLevel.Debug]: console.log.bind(console)
